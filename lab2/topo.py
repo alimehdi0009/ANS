@@ -19,6 +19,9 @@
  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  """
 
+from enum import Enum
+ 
+
 # Class for an edge in the graph
 class Edge:
 	def __init__(self):
@@ -44,6 +47,7 @@ class Node:
 		edge.lnode = self
 		edge.rnode = node
 		self.edges.append(edge)
+		
 		node.edges.append(edge)
 		return edge
 
@@ -58,10 +62,25 @@ class Node:
 				return True
 		return False
 
+class TopologyLevel(Enum):
+	CORE = 'core'
+	AGGREGATE = 'aggregate'
+	EDGE = 'edge'
+
 
 class Fattree:
 
 	def __init__(self, num_ports):
+	
+		""" 
+		Servers list structure: 
+		[
+			{'core level' : [list if switches in the core level]}, => 0th index in the serves list
+			{'aggregate level' : {'pod_id':[list of aggregate switches in that pod]} }, => 1st index in the servers list
+			{'edge level':{'pod_id':[list of edge switches in that pod]} }, => 2nd index in the servers list
+		]
+			
+		"""
 		self.servers = []
 		self.switches = []
 		
@@ -73,72 +92,164 @@ class Fattree:
 		self.edge_switches_count = (num_ports ** 2) // 2
 		self.total_servers_count = (num_ports ** 3) // 4
 		
-		self.aggre_switches_per_pod = num_ports ** 2
-		self.edge_switches_per_pod = num_ports ** 2
-		self.servers_per_switch = num_ports ** 2
+		self.aggre_switches_per_pod = num_ports // 2
+		self.edge_switches_per_pod = num_ports // 2
+		self.servers_per_switch = num_ports // 2
+		self.group_size = num_ports // 2
+		
+		
+		print(f"""
+Pods Count: {self.pods_count}
+Core Switches Count: {self.core_switches_count}
+Aggregation Switches Count: {self.aggregation_switches_count}
+Edge Switches Count: {self.edge_switches_count}
+Total Servers Count: {self.total_servers_count}
+
+Aggregation Switches per Pod: {self.aggre_switches_per_pod}
+Edge Switches per Pod: {self.edge_switches_per_pod}
+Servers per Switch: {self.servers_per_switch}
+Group Size: {self.group_size}
+""")
+
+		
+		#list for core switches
+		self.switches.append([])
+		
+		#dictionary for aggregate switches
+		self.switches.append({})
+		
+		#dictionary for edge switches
+		self.switches.append({})
 		
 		self.generate(num_ports)
+		self.iterate_topology()
+		
+	def generate_core_swicthes(self):
+	
+		self.switches.append([])
+		
+		for switch_id in range(self.core_switches_count):
+			name = f"core_s{switch_id}"
+			new_switch = Node(switch_id,name)
+			self.switches[0].append(new_switch)
+			
+	def generate_pod_aggregate_swicthes(self,pod_id):
+		
+		self.switches[1].setdefault(pod_id,[])
+		
+		for switch_id in range(self.aggre_switches_per_pod):
+			name = f"p{pod_id}_aggr_s{switch_id}"
+			new_switch = Node(switch_id,name)
+			self.switches[1][pod_id].append(new_switch)
+			
+	
+	
+	def generate_pod_edge_switches(self,pod_id):
+		
+		self.switches[2].setdefault(pod_id,[])
+		
+		for switch_id in range(self.edge_switches_per_pod):
+			name = f"p{pod_id}_edge_s{switch_id}"
+			new_switch = Node(switch_id,name)
+			self.switches[2][pod_id].append(new_switch)
+			
+			self.generate_servers_for_edge_switch(new_switch)
+	
+	def generate_servers_for_edge_switch(self,switch):
+		for server_id in range(self.servers_per_switch):
+			new_server = Node(server_id,f"server{server_id}")
+			self.servers.append(new_server)
+			
+			switch.add_edge(new_server)
+			
+	def connect_pod_aggregate_edge_switches(self,pod_id):
+		
+		for agg_switch in self.switches[1][pod_id]:
+			for edge_switch in self.switches[2][pod_id]:
+				agg_switch.add_edge(edge_switch)
+	
+	def get_core_switches_for_aggregation(self,aggr_switch_index):
+		return [(aggr_switch_index * self.group_size) + j for j in range(self.group_size) ]
+	
+	
+	def connect_core_aggregate_switches(self):
+	
+		for pod_id in range(self.pods_count):
+			for aggre_switch in self.switches[1][pod_id]:
+			
+				core_indices = self.get_core_switches_for_aggregation(aggre_switch.id)				
+				for core_index in core_indices:
+					self.switches[0][core_index].add_edge(aggre_switch)
+		
+	
 
 	def generate(self, num_ports):
 
 		# TODO: code for generating the fat-tree topology
 		
 		#generate the core switches
-		self.switches.append({'core':[]})
+		self.generate_core_swicthes()
 		
-		for switch_id in range(self.core_switches_count):
-			new_switch = Node(switch_id,'core')
-			
-			self.switches[0]['core'].append(new_switch)
-			
-		
+		#generate aggregate and edge switches for the pods
 		for pod_id in range(self.pods_count):
 			
 			#generate pod aggregate switches
-			self.switches.append({'aggregate':{}})
-			for switch_id in range(self.aggre_switches_per_pod):
-				new_switch = Node(switch_id,'aggregate')
-			
-				self.switches[1]['aggregate'].setdefault({pod_id:[]}).append(new_switch)
-			
-			
+			self.generate_pod_aggregate_swicthes(pod_id)
+						
 			#generate pod edge switches
-			self.switches.append({'edge':{}})
-			for switch_id in range(self.edge_switches_per_pod):
-			
-				new_switch = Node(switch_id,'edge')
-				self.switches[1]['edge'].setdefault({pod_id:[]}).append(new_switch)
-				
-				#generate the servers for switch in the pod
-				for server_id in range(self.servers_per_switch):
-				
-					new_server = Node(server_id,'server')
-					new_server.add_edge(new_switch)
-					
-					self.servers.append(new_server)
+			self.generate_pod_edge_switches(pod_id)
 			
 			#connect aggregate switches to edge swicthes
-			for agg_switch in self.switches[0]['aggregate'][pod_id]:
-			
-				for edge_switch in self.swicthes[1]['edge'][pod_id]:
-					
-					agg_switch.add_edge(edge_switch)
-					
-			
-							
+			self.connect_pod_aggregate_edge_switches(pod_id)
+									
+		#connecting core switches with aggregate
+		self.connect_core_aggregate_switches();
 		
-		for core_switch in self.switchs[0]['core']:
+	
+	def iterate_edges(self,node):
+		
+		for edge in node.edges:
+			print(f"Switch type: {edge.rnode.type} | Switch id: {edge.rnode.id}")
 			
-			for pod_id in range(self.pods_count):
+			
+	def iterate_topology(self):
+	
+		
+		for core_switch in self.switches[0]:
+			print(f"Switch type: {core_switch.type} | Switch id: {core_switch.id}")
+			
+			print('connections:')
+			
+			self.iterate_edges(core_switch)
+			print("--------------------------------------------------------------")
+		
+		for pod_id in range(self.pods_count):
+		
+			print(f"Iterating Pod id: {pod_id} aggregate switches")
+			
+			for aggregate_switch in self.switches[1][pod_id]:
+				print(f"Switch type: {aggregate_switch.type} | Switch id: {aggregate_switch.id}")
 				
-				#getting index of the aggregate switch to connect the core switch with
-				aggregate_switch_index = core_switch.id % self.edge_switches_per_pod;
+				print("connections:")
 				
-				#getting aggregate switch based on the calculated index 
-				aggregate_switch_to_connect_with = self.server[1]['aggregate'][pod_id][aggregate_switch_index]
+				self.iterate_edges(aggregate_switch)
+				print("--------------------------------------------------------------")
 				
-				#connecting core with reterived aggregate switch
-				core_switch.add_edge(aggregate_switch_to_connect_with)
+			
+			print(f"Iterating Pod id: {pod_id} edge switches")
+			
+			for edge_switch in self.switches[2][pod_id]:
+				print(f"Switch type: {edge_switch.type} | Switch id: {edge_switch.id}")
+				
+				print("connections:")
+				
+				self.iterate_edges(edge_switch)
+				print("--------------------------------------------------------------")
+				
+				
+if __name__ == "__main__":
+	fat_tree = Fattree(4)
+		
 				
 				
 				
