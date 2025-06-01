@@ -36,10 +36,12 @@ class Edge:
 
 # Class for a node in the graph
 class Node:
-	def __init__(self, id, type):
+	def __init__(self, id, type, unique_id, ip=None):
 		self.edges = []
 		self.id = id
 		self.type = type
+		self.unique_id = unique_id
+		self.ip=ip
 
 	# Add an edge connected to another node
 	def add_edge(self, node):
@@ -62,11 +64,6 @@ class Node:
 				return True
 		return False
 
-class TopologyLevel(Enum):
-	CORE = 'core'
-	AGGREGATE = 'aggregate'
-	EDGE = 'edge'
-
 
 class Fattree:
 
@@ -75,9 +72,7 @@ class Fattree:
 		""" 
 		Servers list structure: 
 		[
-			{'core level' : [list if switches in the core level]}, => 0th index in the serves list
-			{'aggregate level' : {'pod_id':[list of aggregate switches in that pod]} }, => 1st index in the servers list
-			{'edge level':{'pod_id':[list of edge switches in that pod]} }, => 2nd index in the servers list
+
 		]
 			
 		"""
@@ -85,7 +80,7 @@ class Fattree:
 		self.switches = []
 		
 		
-		
+		self.number_of_ports=num_ports
 		self.pods_count = num_ports
 		self.core_switches_count = (num_ports // 2) ** 2
 		self.aggregation_switches_count = (num_ports ** 2) // 2
@@ -96,21 +91,7 @@ class Fattree:
 		self.edge_switches_per_pod = num_ports // 2
 		self.servers_per_switch = num_ports // 2
 		self.group_size = num_ports // 2
-		
-		
-		print(f"""
-Pods Count: {self.pods_count}
-Core Switches Count: {self.core_switches_count}
-Aggregation Switches Count: {self.aggregation_switches_count}
-Edge Switches Count: {self.edge_switches_count}
-Total Servers Count: {self.total_servers_count}
-
-Aggregation Switches per Pod: {self.aggre_switches_per_pod}
-Edge Switches per Pod: {self.edge_switches_per_pod}
-Servers per Switch: {self.servers_per_switch}
-Group Size: {self.group_size}
-""")
-
+	
 		
 		#list for core switches
 		self.switches.append([])
@@ -121,44 +102,74 @@ Group Size: {self.group_size}
 		#dictionary for edge switches
 		self.switches.append({})
 		
+		#dictionary for edge servers
+		self.servers.append({})
+		
+		
 		self.generate(num_ports)
 		self.iterate_topology()
-		
+	
+	#For the core switches we use 10.k.j.i pattern to generate the ip addresses
+	#Where values of the j and i are the core switch cooredinates in the (k//2) ** 2 core switch grid and i, and j belongs to [1, k/2]
+	#For k=4 i,j belongs to [1,2]. The grid is from top left 
+	#assigning ip addresses based on the paper
 	def generate_core_swicthes(self):
 	
 		self.switches.append([])
 		
-		for switch_id in range(self.core_switches_count):
-			name = f"core_s{switch_id}"
-			new_switch = Node(switch_id,name)
-			self.switches[0].append(new_switch)
-			
+		for j in range(self.group_size):
+			for i in range(self.group_size):
+				switch_id = (j * self.group_size) + i
+				ip = f"10.{self.number_of_ports}.{j+1}.{i+1}"
+				switch_type = "core"
+				uid=f"cs{switch_id}"
+				new_switch = Node(switch_id,switch_type,uid,ip)
+				self.switches[0].append(new_switch)
+	
+	#for the pod switches we use 10.pod.switch.1 for the ip address
+	#where pod is the pod number and switch is the switch number from left to right and botton to top
+	#in out topology for aggregation the switch value for the ip is calculated as (switch_id + (num_ports/2))	
 	def generate_pod_aggregate_swicthes(self,pod_id):
 		
 		self.switches[1].setdefault(pod_id,[])
 		
 		for switch_id in range(self.aggre_switches_per_pod):
-			name = f"p{pod_id}_aggr_s{switch_id}"
-			new_switch = Node(switch_id,name)
+			type = "aggregate"
+			uid=f"paggrs{pod_id}{switch_id}"
+			ip = f"10.{pod_id}.{switch_id + self.group_size}.1"
+			new_switch = Node(switch_id,type,uid,ip)
 			self.switches[1][pod_id].append(new_switch)
 			
 	
-	
+	#for the pod switches we use 10.pod.switch.1 for the ip address
+	#where pod is the pod number and switch is the switch number from left to right and botton to top
+	#in out topology for aggregation the switch value for the ip is calculated as (switch_id + (num_ports/2))
 	def generate_pod_edge_switches(self,pod_id):
 		
 		self.switches[2].setdefault(pod_id,[])
 		
+		
 		for switch_id in range(self.edge_switches_per_pod):
-			name = f"p{pod_id}_edge_s{switch_id}"
-			new_switch = Node(switch_id,name)
+			type="edge"
+			uid = f"pedges{pod_id}{switch_id}"
+			ip = f"10.{pod_id}.{switch_id}.1"
+			new_switch = Node(switch_id,type,uid,ip)
 			self.switches[2][pod_id].append(new_switch)
 			
-			self.generate_servers_for_edge_switch(new_switch)
+			self.generate_servers_for_edge_switch(pod_id,new_switch)
 	
-	def generate_servers_for_edge_switch(self,switch):
+	
+	#server has ip addresses of 10.pod.switch.ID pattern where ID is the host position in the subnet and is ranged from [2,(k/2)+1].
+	#this is to protect the ip conflicts from switches in the upper levels
+	def generate_servers_for_edge_switch(self,pod_id,switch):
+		
+		self.servers[0].setdefault(pod_id,[])
 		for server_id in range(self.servers_per_switch):
-			new_server = Node(server_id,f"server{server_id}")
-			self.servers.append(new_server)
+			uid=f"pserver{pod_id}{server_id}"
+			type="server"
+			ip=f"10.{pod_id}.{switch.id}.{server_id+2}"
+			new_server = Node(server_id,type,uid,ip)
+			self.servers[0][pod_id].append(new_server)
 			
 			switch.add_edge(new_server)
 			
@@ -209,14 +220,14 @@ Group Size: {self.group_size}
 	def iterate_edges(self,node):
 		
 		for edge in node.edges:
-			print(f"Switch type: {edge.rnode.type} | Switch id: {edge.rnode.id}")
+			print(f"Switch type: {edge.rnode.unique_id} | Switch id: {edge.rnode.id} | ip: {edge.rnode.ip}")
 			
 			
 	def iterate_topology(self):
 	
 		
 		for core_switch in self.switches[0]:
-			print(f"Switch type: {core_switch.type} | Switch id: {core_switch.id}")
+			print(f"Switch type: {core_switch.unique_id} | Switch id: {core_switch.id} | ip: {core_switch.ip}")
 			
 			print('connections:')
 			
@@ -228,7 +239,7 @@ Group Size: {self.group_size}
 			print(f"Iterating Pod id: {pod_id} aggregate switches")
 			
 			for aggregate_switch in self.switches[1][pod_id]:
-				print(f"Switch type: {aggregate_switch.type} | Switch id: {aggregate_switch.id}")
+				print(f"Switch type: {aggregate_switch.unique_id} | Switch id: {aggregate_switch.id} | ip: {aggregate_switch.ip}")
 				
 				print("connections:")
 				
@@ -239,7 +250,7 @@ Group Size: {self.group_size}
 			print(f"Iterating Pod id: {pod_id} edge switches")
 			
 			for edge_switch in self.switches[2][pod_id]:
-				print(f"Switch type: {edge_switch.type} | Switch id: {edge_switch.id}")
+				print(f"Switch type: {edge_switch.unique_id} | Switch id: {edge_switch.id} | ip: {edge_switch.ip}")
 				
 				print("connections:")
 				
@@ -247,8 +258,8 @@ Group Size: {self.group_size}
 				print("--------------------------------------------------------------")
 				
 				
-if __name__ == "__main__":
-	fat_tree = Fattree(4)
+#if __name__ == "__main__":
+#	fat_tree = Fattree(4)
 		
 				
 				
