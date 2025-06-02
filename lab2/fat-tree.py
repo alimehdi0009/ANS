@@ -37,6 +37,7 @@ from mininet.util import waitListening, custom
 
 from topo import Fattree
 from dijkstra import Dijkistra
+from sp_routing import SPRouter
 
 
 class FattreeNet(Topo):
@@ -48,11 +49,9 @@ class FattreeNet(Topo):
 
 		Topo.__init__(self)
 		self.ft_topo=ft_topo
-		self.switch_id_to_ip={}
-		self.switches_routing_tables={}
 		self.connections= set()
 		
-		self.all_nodes={}
+		self.flat_graph={}
 
 		# TODO: please complete the network generation logic here
 
@@ -60,7 +59,7 @@ class FattreeNet(Topo):
 		for core_s in ft_topo.switches[0]:
 			self.add_node_to_flat_graph(core_s)
 			self.addSwitch(core_s.unique_id, cls=OVSKernelSwitch)
-			self.switch_id_to_ip[core_s.unique_id]=core_s.ip
+			self.switch_to_ip[core_s.unique_id.split("-")[1]]=core_s.ip
 			self.add_connections(core_s)
         	
 		for pod_id in range(ft_topo.pods_count):
@@ -69,15 +68,12 @@ class FattreeNet(Topo):
 			for aggregate_s in ft_topo.switches[1][pod_id]:
 				self.add_node_to_flat_graph(aggregate_s)
 				self.addSwitch(aggregate_s.unique_id, cls=OVSKernelSwitch)
-				self.switch_id_to_ip[aggregate_s.unique_id]=aggregate_s.ip
-				self.add_connections(aggregate_s)
 				
 			
 			#adding edge level switches to mininet
 			for edge_s in ft_topo.switches[2][pod_id]:
 				self.add_node_to_flat_graph(edge_s)
 				self.addSwitch(edge_s.unique_id, cls=OVSKernelSwitch)
-				self.switch_id_to_ip[edge_s.unique_id]=edge_s.ip
 				self.add_connections(edge_s)
 				
 			#adding servers to mininet
@@ -100,16 +96,16 @@ class FattreeNet(Topo):
 	
 	def add_node_to_flat_graph(self, node):
 				
-		self.all_nodes.setdefault(node.unique_id,[])
+		self.flat_graph.setdefault(node.unique_id,[])
 		neighbours = set()
 		
 		for edge in node.edges:
-			if edge.rnode.unique_id not in self.all_nodes[node.unique_id] and node.unique_id != edge.rnode.unique_id:
+			if edge.rnode.unique_id not in self.flat_graph[node.unique_id] and node.unique_id != edge.rnode.unique_id: #ignore edge nodes that point to itself
 				neighbours.add(edge.rnode.unique_id)
-			elif edge.lnode.unique_id not in self.all_nodes[node.unique_id] and node.unique_id != edge.lnode.unique_id:
+			elif edge.lnode.unique_id not in self.flat_graph[node.unique_id] and node.unique_id != edge.lnode.unique_id:
 				neighbours.add(edge.lnode.unique_id)			
 			
-		self.all_nodes[node.unique_id]=list(neighbours)
+		self.flat_graph[node.unique_id]=list(neighbours)
 			
 	
 	def genrate_core_switch_forwarding_table(self):
@@ -127,9 +123,6 @@ class FattreeNet(Topo):
 		self.switches_routing_tables[switch_id][destination_ip]=out_port
 		
 		
-		
-		     
-
 
 def make_mininet_instance(graph_topo):
 
@@ -158,5 +151,5 @@ def run(graph_topo):
 if __name__ == '__main__':
     ft_topo = Fattree(4)
     net_topo = FattreeNet(ft_topo)
-    dijkstra_algo = Dijkistra(net_topo.all_nodes,"pserver11","pserver30")
-    #run(ft_topo)
+    #dijkstra_algo = Dijkistra(net_topo.flat_graph,"pserver11","pserver30")
+    run(ft_topo)
