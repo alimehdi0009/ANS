@@ -72,6 +72,7 @@ class Fattree:
 		self.servers = []
 		self.switches = []
 		
+		self.flat_graph={}
 		
 		self.number_of_ports=num_ports
 		self.pods_count = num_ports
@@ -106,7 +107,7 @@ class Fattree:
 		
 		
 		self.generate(num_ports)
-		#self.iterate_topology()
+		self.generate_flat_tree()
 	
 	#For the core switches we use 10.k.j.i pattern to generate the ip addresses
 	#Where values of the j and i are the core switch cooredinates in the (k//2) ** 2 core switch grid and i, and j belongs to [1, k/2]
@@ -214,49 +215,47 @@ class Fattree:
 									
 		#connecting core switches with aggregate
 		self.connect_core_aggregate_switches();
-		
+
+	def generate_flat_tree(self):
 	
-	def iterate_edges(self,node):
+		for core_s in self.switches[0]:
+			self.add_node_to_flat_graph(core_s)
+			
+		for pod_id in range(self.pods_count):
+        
+			#adding aggregate level switches to mininet
+			for aggregate_s in self.switches[1][pod_id]:
+				self.add_node_to_flat_graph(aggregate_s)
+				
+			
+			#adding edge level switches to mininet
+			for edge_s in self.switches[2][pod_id]:
+				self.add_node_to_flat_graph(edge_s)
+				
+			#adding servers to mininet
+			for server in self.servers[0][pod_id]:
+				self.add_node_to_flat_graph(server)
+				
+	def add_node_to_flat_graph(self, node):
+		
+		self.flat_graph.setdefault(node.ip,[])
+		
+		neighbours = set()
 		
 		for edge in node.edges:
-			print(f"Switch type: {edge.rnode.unique_id} | Switch id: {edge.rnode.id} | ip: {edge.rnode.ip}")
 			
+			if edge.rnode.ip not in self.flat_graph[node.ip] and node.ip != edge.rnode.ip: #ignore edge nodes that point to itself
+				neighbours.add(edge.rnode.ip)
+			elif edge.lnode.ip not in self.flat_graph[node.ip] and node.ip != edge.lnode.ip:
+				neighbours.add(edge.lnode.ip)			
 			
-	def iterate_topology(self):
-	
+		self.flat_graph[node.ip]=list(neighbours)
+				
+
+	def get_datapath_id(self,node):
 		
-		for core_switch in self.switches[0]:
-			print(f"Switch type: {core_switch.unique_id} | Switch id: {core_switch.id} | ip: {core_switch.ip}")
-			
-			print('connections:')
-			
-			self.iterate_edges(core_switch)
-			print("--------------------------------------------------------------")
+		return int(node.unique_id.split("-")[1])
 		
-		for pod_id in range(self.pods_count):
-		
-			print(f"Iterating Pod id: {pod_id} aggregate switches")
-			
-			for aggregate_switch in self.switches[1][pod_id]:
-				print(f"Switch type: {aggregate_switch.unique_id} | Switch id: {aggregate_switch.id} | ip: {aggregate_switch.ip}")
-				
-				print("connections:")
-				
-				self.iterate_edges(aggregate_switch)
-				print("--------------------------------------------------------------")
-				
-			
-			print(f"Iterating Pod id: {pod_id} edge switches")
-			
-			for edge_switch in self.switches[2][pod_id]:
-				print(f"Switch type: {edge_switch.unique_id} | Switch id: {edge_switch.id} | ip: {edge_switch.ip}")
-				
-				print("connections:")
-				
-				self.iterate_edges(edge_switch)
-				print("--------------------------------------------------------------")
-				
-				
 #if __name__ == "__main__":
 #	fat_tree = Fattree(4)
 		

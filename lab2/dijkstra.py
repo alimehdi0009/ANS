@@ -3,14 +3,16 @@ import heapq
 
 class Dijkistra:
 	
-	def __init__(self, graph,source,destination):
+	def __init__(self, graph):
 	
+		self.graph=graph
 		self.visited=set()
 		
 		self.previous_node={node: None for node in graph}
 	
 		self.unvisited={node: float('inf') for node in graph}
-		
+	
+	def run(self,source,destination):
 		self.unvisited[source] = 0
 		
 		self.hopes_heap = [(0,source)]
@@ -23,7 +25,7 @@ class Dijkistra:
 				
 			self.visited.add(current_node)
 			
-			for neighbour_node in graph[current_node]:
+			for neighbour_node in self.graph[current_node]:
 				new_distance = current_distance + 1
 				
 				if new_distance < self.unvisited[neighbour_node]:
@@ -38,9 +40,10 @@ class Dijkistra:
 		while current is not None:
 			path.append(current)
 			current = self.previous_node[current]
-		print(f"{source} = > {destination}")
-		print(path)
-		 	
+		
+		path.reverse()
+		
+		return path	 	
 		
 		
 		

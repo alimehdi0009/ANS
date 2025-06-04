@@ -36,8 +36,6 @@ from mininet.topo import Topo
 from mininet.util import waitListening, custom
 
 from topo import Fattree
-from dijkstra import Dijkistra
-from sp_routing import SPRouter
 
 
 class FattreeNet(Topo):
@@ -50,35 +48,28 @@ class FattreeNet(Topo):
 		Topo.__init__(self)
 		self.ft_topo=ft_topo
 		self.connections= set()
-		
-		self.flat_graph={}
 
 		# TODO: please complete the network generation logic here
 
 		#add core level switches to mininet
 		for core_s in ft_topo.switches[0]:
-			self.add_node_to_flat_graph(core_s)
 			self.addSwitch(core_s.unique_id, cls=OVSKernelSwitch)
-			self.switch_to_ip[core_s.unique_id.split("-")[1]]=core_s.ip
 			self.add_connections(core_s)
         	
 		for pod_id in range(ft_topo.pods_count):
         
 			#adding aggregate level switches to mininet
 			for aggregate_s in ft_topo.switches[1][pod_id]:
-				self.add_node_to_flat_graph(aggregate_s)
 				self.addSwitch(aggregate_s.unique_id, cls=OVSKernelSwitch)
 				
 			
 			#adding edge level switches to mininet
 			for edge_s in ft_topo.switches[2][pod_id]:
-				self.add_node_to_flat_graph(edge_s)
-				self.addSwitch(edge_s.unique_id, cls=OVSKernelSwitch)
+				s1=self.addSwitch(edge_s.unique_id, cls=OVSKernelSwitch)
 				self.add_connections(edge_s)
 				
 			#adding servers to mininet
 			for server in ft_topo.servers[0][pod_id]:
-				self.add_node_to_flat_graph(server)
 				self.addHost(server.unique_id,ip=server.ip)
 				self.add_connections(server)
         		
@@ -86,29 +77,14 @@ class FattreeNet(Topo):
 		#generate connections
 		for source, destination in self.connections:
 			self.addLink(source,destination,cls=TCLink,bw=15,delay=5)
-		
-		self.genrate_core_switch_forwarding_table();
 
 
 	def add_connections(self,node):				
 		for edge in node.edges:
 			self.connections.add(( edge.lnode.unique_id, edge.rnode.unique_id ))
-	
-	def add_node_to_flat_graph(self, node):
-				
-		self.flat_graph.setdefault(node.unique_id,[])
-		neighbours = set()
-		
-		for edge in node.edges:
-			if edge.rnode.unique_id not in self.flat_graph[node.unique_id] and node.unique_id != edge.rnode.unique_id: #ignore edge nodes that point to itself
-				neighbours.add(edge.rnode.unique_id)
-			elif edge.lnode.unique_id not in self.flat_graph[node.unique_id] and node.unique_id != edge.lnode.unique_id:
-				neighbours.add(edge.lnode.unique_id)			
-			
-		self.flat_graph[node.unique_id]=list(neighbours)
 			
 	
-	def genrate_core_switch_forwarding_table(self):
+	"""def genrate_core_switch_forwarding_table(self):
 		
 		for j in range(1, (self.ft_topo.number_of_ports // 2) + 1):
 			for i in range(1, (self.ft_topo.number_of_ports // 2) + 1):
@@ -120,7 +96,7 @@ class FattreeNet(Topo):
 	
 	def add_prefix(self,switch_id,destination_ip,out_port):
 		self.switches_routing_tables.setdefault(switch_id,{})
-		self.switches_routing_tables[switch_id][destination_ip]=out_port
+		self.switches_routing_tables[switch_id][destination_ip]=out_port"""
 		
 		
 
@@ -128,6 +104,12 @@ def make_mininet_instance(graph_topo):
 
     net_topo = FattreeNet(graph_topo)
     net = Mininet(topo=net_topo, controller=None, autoSetMacs=True)
+    
+    alls=net.switches()
+    
+    for s in alls:
+    	print(s)
+    	
     net.addController('c0', controller=RemoteController,
                       ip="127.0.0.1", port=6653)
     return net
@@ -151,5 +133,4 @@ def run(graph_topo):
 if __name__ == '__main__':
     ft_topo = Fattree(4)
     net_topo = FattreeNet(ft_topo)
-    #dijkstra_algo = Dijkistra(net_topo.flat_graph,"pserver11","pserver30")
     run(ft_topo)
