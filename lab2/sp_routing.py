@@ -51,7 +51,11 @@ class SPRouter(app_manager.RyuApp):
 		
 		self.topo_net = topo.Fattree(4)
 		
+		print(self.topo_net.datapath_flat_graph)
+		print(self.topo_net.ip_flat_graph)
+		
 		self.datapath_to_ip={}
+		
 		
 		self.datapath_port_to_ip={}
 		
@@ -59,9 +63,11 @@ class SPRouter(app_manager.RyuApp):
 		
 		self.generate_datapath_to_ip(self.topo_net)
 		
+		self.ip_to_datapath={ ip: dp for dp, ip in self.datapath_to_ip.items()}
+		
 		self.datapath_routing_tables={}
 		
-		self.dijkistra = Dijkistra(self.topo_net.flat_graph)
+		self.dijkistra = Dijkistra(self.topo_net.ip_flat_graph)
 
 	# Topology discovery
 	@set_ev_cls(event.EventSwitchEnter)
@@ -73,7 +79,7 @@ class SPRouter(app_manager.RyuApp):
 		
 		for sw in switches:
 			
-			dp=sw.dp			
+			dp=sw.dp		
 			self.switch_mac_to_port.setdefault(dp.id,{})	
 				
 			for port in sw.ports:			
@@ -89,11 +95,15 @@ class SPRouter(app_manager.RyuApp):
 			self.datapath_port_to_ip.setdefault(src.dpid,{})
 			self.datapath_port_to_ip.setdefault(dst.dpid,{})
 			
+			print(f"src: {src.dpid} - dst: {dst.dpid}")
+			
 			if src.port_no not in self.datapath_port_to_ip[src.dpid]:
-				self.datapath_port_to_ip[src.dpid][src.port_no]=self.datapath_to_ip[dst.dpid]
+				dst_ip=self.datapath_to_ip[dst.dpid]
+				self.datapath_port_to_ip[src.dpid][dst_ip]=src.port_no
 				
 			if dst.port_no not in self.datapath_port_to_ip[dst.dpid]:
-				self.datapath_port_to_ip[dst.dpid][dst.port_no]=self.datapath_to_ip[src.dpid]
+				src_ip=self.datapath_to_ip[src.dpid]
+				self.datapath_port_to_ip[dst.dpid][src_ip]=dst.port_no
 
 
 		#for dp in self.datapath_port_to_ip:
@@ -148,7 +158,6 @@ class SPRouter(app_manager.RyuApp):
 			
 			src=arp_header.src_ip
 			dst=arp_header.dst_ip
-			shortest_path=self.dijkistra.run(arp_header.src_ip,arp_header.dst_ip)
 			
 			#print(shortest_path)
 		elif ip_header is not None:
@@ -156,14 +165,47 @@ class SPRouter(app_manager.RyuApp):
 			dst = ip_header.dst
 			print(f"source: {ip_header.src}")
 			print(f"destination: {ip_header.dst}")
-			
+		
+		shortest_path=None
+		
 		if src and dst:
 			if datapath.id not in self.datapath_port_to_ip:
-				self.datapath_port_to_ip.setdefault(datapath.id,{})
+				self.datapath_port_to_ip.setdefault(dpid,{})
 		
-			if in_port not in self.datapath_port_to_ip[datapath.id]:
-				self.datapath_port_to_ip[datapath.id][in_port] = dst
-				print(f'added port: {in_port} for datapath:{datapath.id} againt dst: {dst}')
+			if src not in self.datapath_port_to_ip[dpid]:
+				self.datapath_port_to_ip[dpid][src] = in_port
+				print(f'added port: {in_port} for datapath:{dpid} againt dst: {dst}')
+			
+			
+			#src_dp=self.ip_to_datapath[src]
+			#dst_dp=self.ip_to_datapath[dst]
+			
+			shortest_path=self.dijkistra.run(src,dst)
+			
+			print(f"source: {src}  - destination:{dst}")
+			print(shortest_path)
+			
+			current_datapath_ip=self.datapath_to_ip[dpid]
+			
+		
+		if shortest_path and current_datapath_ip in shortest_path:	
+			
+			out_port = self.datapath_port_to_ip[dpid][dst]
+			
+			actions = [parser.OFPActionOutput(out_port)]
+			
+			match = parser.OFPMatch(ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
+			
+			self.add_flow(datapath, 1, match,actions)
+			
+			
+			packet_out = parser.OFPPacketOut(
+				datapath=datapath,
+				buffer_id=msg.buffer_id,
+				in_port=in_port,
+				actions=actions,
+				data=msg.data)
+			datapath.send_msg(packet_out)
 			
 		
 		""""received_packet = packet.Packet(msg.data)

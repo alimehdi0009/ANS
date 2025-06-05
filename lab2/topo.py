@@ -72,7 +72,9 @@ class Fattree:
 		self.servers = []
 		self.switches = []
 		
-		self.flat_graph={}
+		self.datapath_flat_graph={}
+		
+		self.ip_flat_graph={}
 		
 		self.number_of_ports=num_ports
 		self.pods_count = num_ports
@@ -219,37 +221,61 @@ class Fattree:
 	def generate_flat_tree(self):
 	
 		for core_s in self.switches[0]:
-			self.add_node_to_flat_graph(core_s)
+			self.add_node_to_datapath_flat_graph(core_s)
+			self.add_node_to_ip_flat_graph(core_s)
 			
 		for pod_id in range(self.pods_count):
         
 			#adding aggregate level switches to mininet
 			for aggregate_s in self.switches[1][pod_id]:
-				self.add_node_to_flat_graph(aggregate_s)
+				self.add_node_to_datapath_flat_graph(aggregate_s)
+				self.add_node_to_ip_flat_graph(aggregate_s)
 				
 			
 			#adding edge level switches to mininet
 			for edge_s in self.switches[2][pod_id]:
-				self.add_node_to_flat_graph(edge_s)
+				self.add_node_to_datapath_flat_graph(edge_s)
+				self.add_node_to_ip_flat_graph(edge_s)
 				
 			#adding servers to mininet
 			for server in self.servers[0][pod_id]:
-				self.add_node_to_flat_graph(server)
+				self.add_node_to_datapath_flat_graph(server)
+				self.add_node_to_ip_flat_graph(server)
 				
-	def add_node_to_flat_graph(self, node):
+	def add_node_to_datapath_flat_graph(self, node):
 		
-		self.flat_graph.setdefault(node.ip,[])
+		node_dpid=self.get_datapath_id(node)
+
+		self.datapath_flat_graph.setdefault(node_dpid,[])
 		
 		neighbours = set()
 		
 		for edge in node.edges:
 			
-			if edge.rnode.ip not in self.flat_graph[node.ip] and node.ip != edge.rnode.ip: #ignore edge nodes that point to itself
+			rnode_dpid=self.get_datapath_id(edge.rnode)
+			lnode_dpid=self.get_datapath_id(edge.lnode)
+			
+			if rnode_dpid not in self.datapath_flat_graph[node_dpid] and node_dpid != rnode_dpid: #ignore edge nodes that point to itself
+				neighbours.add(rnode_dpid)
+			elif lnode_dpid not in self.datapath_flat_graph[node_dpid] and node_dpid != lnode_dpid:
+				neighbours.add(lnode_dpid)			
+			
+		self.datapath_flat_graph[node_dpid]=list(neighbours)
+		
+	
+	def add_node_to_ip_flat_graph(self, node):
+		
+		self.ip_flat_graph.setdefault(node.ip,[])
+		
+		neighbours = set()
+		
+		for edge in node.edges:
+			if edge.rnode.ip not in self.ip_flat_graph[node.ip] and node.ip != edge.rnode.ip: #ignore edge nodes that point to itself
 				neighbours.add(edge.rnode.ip)
-			elif edge.lnode.ip not in self.flat_graph[node.ip] and node.ip != edge.lnode.ip:
+			elif edge.lnode.ip not in self.ip_flat_graph[node.ip] and node.ip != edge.lnode.ip:
 				neighbours.add(edge.lnode.ip)			
 			
-		self.flat_graph[node.ip]=list(neighbours)
+		self.ip_flat_graph[node.ip]=list(neighbours)
 				
 
 	def get_datapath_id(self,node):

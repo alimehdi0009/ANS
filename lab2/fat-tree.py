@@ -53,19 +53,26 @@ class FattreeNet(Topo):
 
 		#add core level switches to mininet
 		for core_s in ft_topo.switches[0]:
-			self.addSwitch(core_s.unique_id, cls=OVSKernelSwitch)
+			dpid = self.get_dpid(core_s.unique_id)
+			
+			print(dpid)
+			self.addSwitch(core_s.unique_id, dpid=dpid, cls=OVSKernelSwitch)
 			self.add_connections(core_s)
         	
 		for pod_id in range(ft_topo.pods_count):
         
 			#adding aggregate level switches to mininet
 			for aggregate_s in ft_topo.switches[1][pod_id]:
-				self.addSwitch(aggregate_s.unique_id, cls=OVSKernelSwitch)
+				dpid = self.get_dpid(aggregate_s.unique_id)
+				print(dpid)
+				self.addSwitch(aggregate_s.unique_id, dpid=dpid, cls=OVSKernelSwitch)
 				
 			
 			#adding edge level switches to mininet
 			for edge_s in ft_topo.switches[2][pod_id]:
-				s1=self.addSwitch(edge_s.unique_id, cls=OVSKernelSwitch)
+				dpid = self.get_dpid(edge_s.unique_id)
+				print(dpid)
+				s1=self.addSwitch(edge_s.unique_id, dpid=dpid, cls=OVSKernelSwitch)
 				self.add_connections(edge_s)
 				
 			#adding servers to mininet
@@ -77,11 +84,15 @@ class FattreeNet(Topo):
 		#generate connections
 		for source, destination in self.connections:
 			self.addLink(source,destination,cls=TCLink,bw=15,delay=5)
-
+				
 
 	def add_connections(self,node):				
 		for edge in node.edges:
 			self.connections.add(( edge.lnode.unique_id, edge.rnode.unique_id ))
+		
+	def get_dpid(self,unique_id):
+		dpid = unique_id.split("-")[1]
+		return format(int(dpid),'016x')
 			
 	
 	"""def genrate_core_switch_forwarding_table(self):
@@ -104,11 +115,6 @@ def make_mininet_instance(graph_topo):
 
     net_topo = FattreeNet(graph_topo)
     net = Mininet(topo=net_topo, controller=None, autoSetMacs=True)
-    
-    alls=net.switches()
-    
-    for s in alls:
-    	print(s)
     	
     net.addController('c0', controller=RemoteController,
                       ip="127.0.0.1", port=6653)
