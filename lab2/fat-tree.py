@@ -54,8 +54,6 @@ class FattreeNet(Topo):
 		#add core level switches to mininet
 		for core_s in ft_topo.switches[0]:
 			dpid = self.get_dpid(core_s.unique_id)
-			
-			print(dpid)
 			self.addSwitch(core_s.unique_id, dpid=dpid, cls=OVSKernelSwitch)
 			self.add_connections(core_s)
         	
@@ -64,14 +62,12 @@ class FattreeNet(Topo):
 			#adding aggregate level switches to mininet
 			for aggregate_s in ft_topo.switches[1][pod_id]:
 				dpid = self.get_dpid(aggregate_s.unique_id)
-				print(dpid)
 				self.addSwitch(aggregate_s.unique_id, dpid=dpid, cls=OVSKernelSwitch)
 				
 			
 			#adding edge level switches to mininet
 			for edge_s in ft_topo.switches[2][pod_id]:
 				dpid = self.get_dpid(edge_s.unique_id)
-				print(dpid)
 				s1=self.addSwitch(edge_s.unique_id, dpid=dpid, cls=OVSKernelSwitch)
 				self.add_connections(edge_s)
 				

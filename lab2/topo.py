@@ -86,6 +86,7 @@ class Fattree:
 		self.aggre_switches_per_pod = num_ports // 2
 		self.edge_switches_per_pod = num_ports // 2
 		self.servers_per_switch = num_ports // 2
+		self.servers_per_pod = (num_ports ** 2) // 4
 		self.group_size = num_ports // 2
 	
 		self.node_types = {
@@ -166,7 +167,7 @@ class Fattree:
 		
 		self.servers[0].setdefault(pod_id,[])
 		for server_id in range(self.servers_per_switch):
-			uid=f"server-{self.make_unique_id('server',pod_id,server_id)}"
+			uid=f"ser-{self.make_unique_id('server',pod_id,switch.id,server_id)}"
 			type="server"
 			ip=f"10.{pod_id}.{switch.id}.{server_id+2}"
 			new_server = Node(server_id,type,uid,ip)
@@ -193,8 +194,11 @@ class Fattree:
 				for core_index in core_indices:
 					self.switches[0][core_index].add_edge(aggre_switch)
 		
-	def make_unique_id(self,node_type: int, pod_id: int, node_id: int):
-		return f"{ self.node_types[node_type]}{pod_id}{node_id}"
+	def make_unique_id(self,node_type, pod_id, node_id, server_id=0):
+		if node_type == 'server':
+			return f"{ self.node_types[node_type]}{pod_id}{node_id}{server_id}"
+		else:
+			return f"{ self.node_types[node_type]}{pod_id}{node_id}"
 
 	def generate(self, num_ports):
 
