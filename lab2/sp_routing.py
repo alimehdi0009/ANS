@@ -36,7 +36,7 @@ from ryu.app.wsgi import ControllerBase
 
 from dijkstra import Dijkistra
 
-from ryu.lib.packet import packet, ethernet, ipv4, ether_types, arp
+from ryu.lib.packet import packet, ethernet, ipv4, ether_types, arp, icmp
 
 import topo
 
@@ -174,6 +174,8 @@ class SPRouter(app_manager.RyuApp):
 			
 			print(f"source: {src} -  destination: {dst}")
 			
+			current_datapath_ip=self.datapath_to_ip[dpid]
+			
 			if arp_header.opcode == arp.ARP_REQUEST or arp_header.opcode == arp.ARP_REPLY:
 				
 				print(f"arp type: {arp_header.opcode}")
@@ -182,6 +184,7 @@ class SPRouter(app_manager.RyuApp):
 					self.datapath_port_to_ip.setdefault(dpid,{})
 					
 				if src not in self.datapath_port_to_ip[dpid]:
+					print(f"mapping port:{in_port} ma at datapath:{current_datapath_ip} to datapath:{src}")
 					self.datapath_port_to_ip[dpid][src] = in_port
 				
 				if dpid not in self.switches_to_ports:
@@ -192,15 +195,15 @@ class SPRouter(app_manager.RyuApp):
 					
 				if (src,dst) in self.paths:
 					shortest_path = self.paths[(src,dst)]
+					print(f"Path for src:{src} - dst:{dst} found in paths...!")
 				
 				else:
+					print(f"Path for src:{src} - dst:{dst}  not found in paths. Calculating adding...!")
 					shortest_path=self.dijkistra.run(src,dst)
 					
 					if shortest_path:
 						self.paths.setdefault((src,dst),[])
 						self.paths[(src,dst)]=shortest_path
-				
-				current_datapath_ip=self.datapath_to_ip[dpid]
 				
 				print(shortest_path)
 				
@@ -222,14 +225,16 @@ class SPRouter(app_manager.RyuApp):
 				
 						print(f"next index ip: {next_dp_ip}")			
 			
+						#getting current datapath port where next datapath is connected
 						out_port = self.datapath_port_to_ip[dpid][next_dp_ip]
+						
+						print(f"forwarding next to next datapath: {next_dp_ip} at port: {out_port}")
 			
 						actions = [parser.OFPActionOutput(out_port)]
 			
-						match = parser.OFPMatch(ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
+						match = parser.OFPMatch(in_port=in_port, ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
 			
 						self.add_flow(datapath, 1, match,actions)
-			
 			
 						packet_out = parser.OFPPacketOut(
 							datapath=datapath,
@@ -254,18 +259,18 @@ class SPRouter(app_manager.RyuApp):
 							print("out port found in last datapath..!")
 							out_port = self.datapath_port_to_ip[dpid][dst]
 							
-							print(f"last data path destination out port: {out_port}")
+							print(f"last datapath: {last_dp_ip} destination: {dst} out port: {out_port}")
 							
 							actions = [parser.OFPActionOutput(out_port)]
-							match = parser.OFPMatch(ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
+							match = parser.OFPMatch(in_port=in_port, ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
 							self.add_flow(datapath, 1, match,actions)
 					
 							packet_out = parser.OFPPacketOut(
-							datapath=datapath,
-							buffer_id=msg.buffer_id,
-							in_port=in_port,
-							actions=actions,
-							data=msg.data)
+								datapath=datapath,
+								buffer_id=msg.buffer_id,
+								in_port=in_port,
+								actions=actions,
+								data=msg.data)
 					
 							datapath.send_msg(packet_out)
 						else:
@@ -282,7 +287,7 @@ class SPRouter(app_manager.RyuApp):
 					
 							for out_port in missing_ports:
 								actions = [parser.OFPActionOutput(out_port)]
-								match = parser.OFPMatch(ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
+								#match = parser.OFPMatch(in_port=in_port, ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
 								#self.add_flow(datapath, 1, match,actions)
 						
 								packet_out = parser.OFPPacketOut(
@@ -294,6 +299,16 @@ class SPRouter(app_manager.RyuApp):
 							
 								datapath.send_msg(packet_out)
 								print(f"forwarded from dp:{last_dp_ip} to port:{out_port} to {dst}")
+		elif eth_pkt.ethertype == eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
+			
+			ipv4_header = received_packet.get_protocol(ipv4.ipv4)
+			icmp_header = received_packet.get_protocol(icmp.icmp)
+			
+			current_datapath_ip=self.datapath_to_ip[dpid]
+			
+			if icmp_header.type == icmp.ICMP_ECHO_REQUEST:
+				
+				print(f"received icmp request from :{ipv4_header.src} to: {ipv4_header.dst} at datapath: {current_datapath_ip}")
 			
 			#elif arp_header.opcode == arp.ARP_REPLY:
 				#print(f"Received the ARP response from: {src} for {dst}")
