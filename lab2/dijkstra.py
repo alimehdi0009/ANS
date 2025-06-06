@@ -13,6 +13,11 @@ class Dijkistra:
 		self.unvisited={node: float('inf') for node in graph}
 	
 	def run(self,source,destination):
+		self.visited=set()
+		
+		self.previous_node={node: None for node in self.graph}
+		self.unvisited={node: float('inf') for node in self.graph}
+		
 		self.unvisited[source] = 0
 		
 		self.hopes_heap = [(0,source)]

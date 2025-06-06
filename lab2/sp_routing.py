@@ -249,10 +249,13 @@ class SPRouter(app_manager.RyuApp):
 						print(f"last datapath ip:{last_dp_ip}")
 						print("data path existing ports:")
 				
-						if last_dp_ip in self.datapath_port_to_ip[dpid]:
+						if dst in self.datapath_port_to_ip[dpid]:
 							
 							print("out port found in last datapath..!")
-							out_port = self.datapath_port_to_ip[dpid][last_dp_ip]
+							out_port = self.datapath_port_to_ip[dpid][dst]
+							
+							print(f"last data path destination out port: {out_port}")
+							
 							actions = [parser.OFPActionOutput(out_port)]
 							match = parser.OFPMatch(ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
 							self.add_flow(datapath, 1, match,actions)
