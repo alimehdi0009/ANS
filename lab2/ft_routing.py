@@ -59,6 +59,8 @@ class FTRouter(app_manager.RyuApp):
 		self.topo_net = topo.Fattree(self.k)
 		self.core_routing_table={}
 		
+		self.pod_switches_routing_tables={}
+		
 		self.switch_mac_to_port={}
 		
 		self.generate_datapath_to_ip(self.topo_net)
@@ -66,6 +68,10 @@ class FTRouter(app_manager.RyuApp):
 		self.ip_to_datapath={ ip: dp for dp, ip in self.datapath_to_ip.items()}
 		
 		self.generate_core_switch_routing_table()
+		
+		self.generate_pod_switches_routing_tables()
+		
+		print(len(self.pod_switches_routing_tables["prefix"]))
 		
 		print(self.datapath_port_to_connected_ip)
 	
@@ -198,9 +204,28 @@ class FTRouter(app_manager.RyuApp):
 		for j in list(range(1,(self.k//2)+1)):
 			for i in list(range(1,(self.k//2)+1)):
 				for pod in list(range(0,self.k)):
-					print(f"(10.{self.k}.{j}.{i}) --> (10.{pod}.0.0)")
 					self.core_routing_table.setdefault(f"10.{self.k}.{j}.{i}",{})
 					self.core_routing_table[f"10.{self.k}.{j}.{i}"][f"10.{pod}.0.0"]=None
+	
+	
+	
+	def generate_pod_switches_routing_tables(self):
+	
+		self.pod_switches_routing_tables.setdefault("prefix",{})
+		self.pod_switches_routing_tables.setdefault("suffix",{})
+		
+		for pod in range(0,self.k):
+			for switch in range(self.k//2, self.k):			
+				for subnet in range(0,self.k//2):
+				
+					self.pod_switches_routing_tables["prefix"].setdefault(f"10.{pod}.{switch}.1",{})
+					self.pod_switches_routing_tables["prefix"][f"10.{pod}.{switch}.1"][f"10.{pod}.{subnet}.0"]=None
+										
+				self.pod_switches_routing_tables["prefix"][f"10.{pod}.{switch}.1"][f"0.0.0.0"]=None
+				
+				for host in range(2, (self.k//2)+2):
+					self.pod_switches_routing_tables["suffix"].setdefault(f"10.{pod}.{switch}.1",{})
+					self.pod_switches_routing_tables["suffix"][f"10.{pod}.{switch}.1"][f"10.0.0.{host}"]=None
         
         
 
