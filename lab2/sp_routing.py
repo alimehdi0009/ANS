@@ -164,21 +164,28 @@ class SPRouter(app_manager.RyuApp):
 		shortest_path=None
 		
 		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP:
-		
-			print(f"datapath:{dpid}")
-			
+			print(f"request type: ARP")
 			arp_header = received_packet.get_protocol(arp.arp)
-			
 			src=arp_header.src_ip
 			dst=arp_header.dst_ip
+		elif eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
+			print(f"request type: IP")
+			ipv4_header = received_packet.get_protocol(ipv4.ipv4)
+			src=ipv4_header.src
+			dst=ipv4_header.dst
+		else:
+			return
+		
+		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP or eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
+		
+			print(f"datapath:{dpid}")
 			
 			print(f"source: {src} -  destination: {dst}")
 			
 			current_datapath_ip=self.datapath_to_ip[dpid]
 			
-			if arp_header.opcode == arp.ARP_REQUEST or arp_header.opcode == arp.ARP_REPLY:
+			if 1==1: #arp_header.opcode == arp.ARP_REQUEST or arp_header.opcode == arp.ARP_REPLY:
 				
-				print(f"arp type: {arp_header.opcode}")
 			
 				if dpid not in self.datapath_port_to_ip:
 					self.datapath_port_to_ip.setdefault(dpid,{})
@@ -299,19 +306,7 @@ class SPRouter(app_manager.RyuApp):
 							
 								datapath.send_msg(packet_out)
 								print(f"forwarded from dp:{last_dp_ip} to port:{out_port} to {dst}")
-		elif eth_pkt.ethertype == eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
-			
-			ipv4_header = received_packet.get_protocol(ipv4.ipv4)
-			icmp_header = received_packet.get_protocol(icmp.icmp)
-			
-			current_datapath_ip=self.datapath_to_ip[dpid]
-			
-			if icmp_header.type == icmp.ICMP_ECHO_REQUEST:
-				
-				print(f"received icmp request from :{ipv4_header.src} to: {ipv4_header.dst} at datapath: {current_datapath_ip}")
-			
-			#elif arp_header.opcode == arp.ARP_REPLY:
-				#print(f"Received the ARP response from: {src} for {dst}")
+
 	
 		
 		
