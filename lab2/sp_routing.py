@@ -58,17 +58,15 @@ class SPRouter(app_manager.RyuApp):
 		
 		self.paths={}
 		
-		self.datapath_port_to_ip={}
+		self.datapath_port_to_connected_ip={}
 		
 		self.switch_mac_to_port={}
 		
-		self.switches_to_ports={}
+		self.datapath_to_ports={}
 		
 		self.generate_datapath_to_ip(self.topo_net)
 		
 		self.ip_to_datapath={ ip: dp for dp, ip in self.datapath_to_ip.items()}
-		
-		self.datapath_routing_tables={}
 		
 		self.dijkistra = Dijkistra(self.topo_net.ip_flat_graph)
 
@@ -95,32 +93,25 @@ class SPRouter(app_manager.RyuApp):
 			src=link.src
 			dst=link.dst
 			
-			self.datapath_port_to_ip.setdefault(src.dpid,{})
-			self.datapath_port_to_ip.setdefault(dst.dpid,{})
+			self.datapath_port_to_connected_ip.setdefault(src.dpid,{})
+			self.datapath_port_to_connected_ip.setdefault(dst.dpid,{})
 			
-			self.switches_to_ports.setdefault(src.dpid,[])
-			self.switches_to_ports.setdefault(dst.dpid,[])
+			self.datapath_to_ports.setdefault(src.dpid,[])
+			self.datapath_to_ports.setdefault(dst.dpid,[])
 			
-			if src.port_no not in self.datapath_port_to_ip[src.dpid]:
+			if src.port_no not in self.datapath_port_to_connected_ip[src.dpid]:
 				dst_ip=self.datapath_to_ip[dst.dpid]
-				self.datapath_port_to_ip[src.dpid][dst_ip]=src.port_no
+				self.datapath_port_to_connected_ip[src.dpid][dst_ip]=src.port_no
 				
-			if src.port_no not in self.switches_to_ports[src.dpid]:
-				self.switches_to_ports[src.dpid].append(src.port_no)
+			if src.port_no not in self.datapath_to_ports[src.dpid]:
+				self.datapath_to_ports[src.dpid].append(src.port_no)
 				
-			if dst.port_no not in self.datapath_port_to_ip[dst.dpid]:
+			if dst.port_no not in self.datapath_port_to_connected_ip[dst.dpid]:
 				src_ip=self.datapath_to_ip[src.dpid]
-				self.datapath_port_to_ip[dst.dpid][src_ip]=dst.port_no
+				self.datapath_port_to_connected_ip[dst.dpid][src_ip]=dst.port_no
 			
-			if dst.port_no not in self.switches_to_ports[dst.dpid]:
-				self.switches_to_ports[dst.dpid].append(dst.port_no)
-
-
-		#for dp in self.datapath_port_to_ip:
-		#	if dp >=300 and dp < 400:
-		#		print(self.datapath_port_to_ip[dp])
-		
-		print(self.switches_to_ports)
+			if dst.port_no not in self.datapath_to_ports[dst.dpid]:
+				self.datapath_to_ports[dst.dpid].append(dst.port_no)
 		
 
 	@set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
@@ -164,78 +155,62 @@ class SPRouter(app_manager.RyuApp):
 		shortest_path=None
 		
 		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP:
-			print(f"request type: ARP")
+		
 			arp_header = received_packet.get_protocol(arp.arp)
 			src=arp_header.src_ip
 			dst=arp_header.dst_ip
+			
 		elif eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
-			print(f"request type: IP")
+		
 			ipv4_header = received_packet.get_protocol(ipv4.ipv4)
 			src=ipv4_header.src
 			dst=ipv4_header.dst
+			
 		else:
 			return
 		
 		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP or eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
-		
-			print(f"datapath:{dpid}")
-			
-			print(f"source: {src} -  destination: {dst}")
 			
 			current_datapath_ip=self.datapath_to_ip[dpid]
 			
 			if 1==1: #arp_header.opcode == arp.ARP_REQUEST or arp_header.opcode == arp.ARP_REPLY:
 				
 			
-				if dpid not in self.datapath_port_to_ip:
-					self.datapath_port_to_ip.setdefault(dpid,{})
+				if dpid not in self.datapath_port_to_connected_ip:
+					self.datapath_port_to_connected_ip.setdefault(dpid,{})
 					
-				if src not in self.datapath_port_to_ip[dpid]:
-					print(f"mapping port:{in_port} ma at datapath:{current_datapath_ip} to datapath:{src}")
-					self.datapath_port_to_ip[dpid][src] = in_port
+				if src not in self.datapath_port_to_connected_ip[dpid]:
+					self.datapath_port_to_connected_ip[dpid][src] = in_port
 				
-				if dpid not in self.switches_to_ports:
-					self.switches_to_ports.setdefault(dpid,[])
+				if dpid not in self.datapath_to_ports:
+					self.datapath_to_ports.setdefault(dpid,[])
 				
-				if in_port not in self.switches_to_ports[dpid]:
-					self.switches_to_ports[dpid].append(in_port)
+				if in_port not in self.datapath_to_ports[dpid]:
+					self.datapath_to_ports[dpid].append(in_port)
 					
 				if (src,dst) in self.paths:
 					shortest_path = self.paths[(src,dst)]
-					print(f"Path for src:{src} - dst:{dst} found in paths...!")
 				
 				else:
-					print(f"Path for src:{src} - dst:{dst}  not found in paths. Calculating adding...!")
 					shortest_path=self.dijkistra.run(src,dst)
 					
 					if shortest_path:
 						self.paths.setdefault((src,dst),[])
 						self.paths[(src,dst)]=shortest_path
 				
-				print(shortest_path)
 				
+				if shortest_path and current_datapath_ip in shortest_path:
 				
-				if shortest_path and current_datapath_ip in shortest_path:	
-			
-					print("ip in shortest path")
 					current_dp_index=shortest_path.index(current_datapath_ip)
-			
-					print(f"current index: {current_dp_index}")
 			
 					next_dp_index = current_dp_index + 1
 			
-					print(f"next index: {next_dp_index}")
-			
 					if next_dp_index < len(shortest_path)-1:
 				
-						next_dp_ip = shortest_path[next_dp_index]
-				
-						print(f"next index ip: {next_dp_ip}")			
+						next_dp_ip = shortest_path[next_dp_index]		
 			
 						#getting current datapath port where next datapath is connected
-						out_port = self.datapath_port_to_ip[dpid][next_dp_ip]
-						
-						print(f"forwarding next to next datapath: {next_dp_ip} at port: {out_port}")
+						out_port = self.datapath_port_to_connected_ip[dpid][next_dp_ip]
 			
 						actions = [parser.OFPActionOutput(out_port)]
 			
@@ -252,21 +227,14 @@ class SPRouter(app_manager.RyuApp):
 							
 						datapath.send_msg(packet_out)
 				
-						print(f"forwarded packet out from dp:{current_datapath_ip} to the port: {out_port} to dp:{next_dp_ip}")
-				
 					elif next_dp_index == len(shortest_path)-1:
 				
 						last_dp_ip = shortest_path[next_dp_index-1]
 				
-						print(f"last datapath ip:{last_dp_ip}")
-						print("data path existing ports:")
-				
-						if dst in self.datapath_port_to_ip[dpid]:
+						if dst in self.datapath_port_to_connected_ip[dpid]:
 							
-							print("out port found in last datapath..!")
-							out_port = self.datapath_port_to_ip[dpid][dst]
+							out_port = self.datapath_port_to_connected_ip[dpid][dst]
 							
-							print(f"last datapath: {last_dp_ip} destination: {dst} out port: {out_port}")
 							
 							actions = [parser.OFPActionOutput(out_port)]
 							match = parser.OFPMatch(in_port=in_port, ipv4_src = src, ipv4_dst = dst, eth_type=0x0800)
@@ -282,15 +250,9 @@ class SPRouter(app_manager.RyuApp):
 							datapath.send_msg(packet_out)
 						else:
 								
-							existing_datapath_ports=self.switches_to_ports[dpid]
-								
-							print(existing_datapath_ports)
+							existing_datapath_ports=self.datapath_to_ports[dpid]
 								
 							missing_ports = list(set(self.switch_possible_ports) - set(existing_datapath_ports))
-				
-							print("data path other ports:")
-				
-							print(missing_ports)
 					
 							for out_port in missing_ports:
 								actions = [parser.OFPActionOutput(out_port)]
@@ -305,103 +267,6 @@ class SPRouter(app_manager.RyuApp):
 									data=msg.data)
 							
 								datapath.send_msg(packet_out)
-								print(f"forwarded from dp:{last_dp_ip} to port:{out_port} to {dst}")
-
-	
-		
-		
-				
-				
-		
-		""""received_packet = packet.Packet(msg.data)
-		eth_pkt = received_packet.get_protocol(ethernet.ethernet)
-		in_port = msg.match['in_port']
-		
-		
-		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP:
-			self.logger.info('=============== ARP Scope Start==================')
-			arp_pkt = received_packet.get_protocol(arp.arp)
-			
-			#if ARP is a Request
-			
-			if arp_pkt.opcode == arp.ARP_REQUEST:
-			
-				self.handle_switch(ev)
-			
-			#If ARP is a response
-			elif arp_pkt.opcode == arp.ARP_REPLY:
-			
-				if arp_pkt.src_mac not in self.mac_to_port[datapath.id]:
-					self.mac_to_port[datapath.id][arp_pkt.src_mac] = in_port
-					
-				self.handle_switch(ev)
-        
-		else:
-			self.handle_switch(ev)
-
-
-	def handle_switch(self,ev):
-		
-		msg = ev.msg
-		
-		datapath=msg.datapath
-		
-		ofproto = datapath.ofproto
-		parser = datapath.ofproto_parser
-		
-		received_packet = packet.Packet(msg.data)
-		
-		ethernet_header = received_packet.get_protocol(ethernet.ethernet)
-		destination_mac = ethernet_header.dst
-		source_mac = ethernet_header.src
-		datapath_id=datapath.id
-		
-		in_port = msg.match['in_port']
-		
-		#if switch doesn't have mac address to port entry for the received packet in 
-		#mac_to_port map then add  it
-		
-		self.mac_to_port.setdefault(datapath_id, {})
-		
-		if source_mac not in self.mac_to_port[datapath_id]:
-			self.mac_to_port[datapath_id][source_mac] = in_port
-			#check if mac to port map already has an entry for the received mac address. if yes
-			#get the outport
-			
-			out_port=None
-			
-		if destination_mac in self.mac_to_port[datapath_id]:
-			out_port = self.mac_to_port[datapath_id][destination_mac]
-		else:
-			#if not entry found in the mac to port map then output port is Flood port.
-			#it can also be the case for the arp request from the host/router
-			
-			self.logger.info('setting flood port: %s',ofproto.OFPP_FLOOD)
-			out_port = ofproto.OFPP_FLOOD
-		
-		#creating the action for the flow rule with selected out port
-		actions = [parser.OFPActionOutput(out_port)]
-		
-		#if out port is not the Flood port then we need to create a match for source and destination
-		#mac addresses for incoming port to add new flow rule
-		
-		if out_port != ofproto.OFPP_FLOOD:
-			match = parser.OFPMatch(in_port=in_port, eth_dst=destination_mac, eth_src=source_mac)
-			self.add_flow(datapath, 1, match,actions)
-			
-		packet_out = parser.OFPPacketOut(
-			datapath=datapath,
-    			buffer_id=msg.buffer_id,
-    			in_port=in_port, 
-    			actions=actions,
-    			data=msg.data)
-    		
-    		datapath.send_msg(packet_out)"""
-
-
-
-	# TODO: handle new packets at the controller
-
 	
 	def generate_datapath_to_ip(self,ft_topo):
 	
@@ -419,4 +284,4 @@ class SPRouter(app_manager.RyuApp):
 			#adding edge level switches to mininet
 			for edge_s in ft_topo.switches[2][pod_id]:
 				self.datapath_to_ip[int(edge_s.unique_id.split("-")[1])]=edge_s.ip
-		
+
