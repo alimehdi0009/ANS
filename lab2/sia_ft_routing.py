@@ -86,64 +86,61 @@ class FTRouter(app_manager.RyuApp):
 	# Topology discovery
 	#@set_ev_cls(event.EventSwitchEnter)
 	def get_topology_data(self, ev=None):
-	
 		expected_switches = int((5 * self.k * self.k) / 4)
 		expected_links = int((3 * self.k * self.k * self.k) / 4)
-		
-		switches = get_switch(self, None)
-		links = get_link(self, None)	
-		
-		if len(switches) == expected_switches and len(links) == expected_links:
-			print("switches and links are discovered..!")
-			return
-		
-		while len(switches) < expected_switches or len(links) < expected_links:
+
+		while not self.discovery_done:
 			switches = get_switch(self, None)
-			links = get_link(self, None)	
-		
-		print("switches and links are discovered..!")
-		for sw in switches:
-			
-			dp=sw.dp		
-			self.switch_mac_to_port.setdefault(dp.id,{})	
-				
-			for port in sw.ports:			
-				if port.hw_addr not in self.switch_mac_to_port[dp.id]:
-					self.switch_mac_to_port[dp.id][port.hw_addr]=port.port_no
-		
-		for link in links:
-			src=link.src
-			dst=link.dst
-			
-			src_dp_ip = self.datapath_to_ip[src.dpid]
-			dst_dp_ip = self.datapath_to_ip[dst.dpid]
-			
-			self.datapath_port_to_connected_ip.setdefault(src_dp_ip,{})
-			self.datapath_port_to_connected_ip.setdefault(dst_dp_ip,{})
-			
-			self.datapath_to_ports.setdefault(src_dp_ip,[])
-			self.datapath_to_ports.setdefault(dst_dp_ip,[])
-			
-			if src.port_no not in self.datapath_port_to_connected_ip[src_dp_ip]:
-				dst_ip=self.datapath_to_ip[dst.dpid]
-				
-				self.datapath_port_to_connected_ip[src_dp_ip][dst_ip]=src.port_no
-				
-			if src.port_no not in self.datapath_to_ports[src_dp_ip]:
-				self.datapath_to_ports[src_dp_ip].append(src.port_no)
-				
-			if dst.port_no not in self.datapath_port_to_connected_ip[dst_dp_ip]:
-				src_ip=self.datapath_to_ip[src.dpid]
-				self.datapath_port_to_connected_ip[dst_dp_ip][src_ip]=dst.port_no
-			
-			if dst.port_no not in self.datapath_to_ports[dst_dp_ip]:
-				self.datapath_to_ports[dst_dp_ip].append(dst.port_no)
-		
-		self.configure_core_forwarding_table()
-		self.configure_aggregate_switches_forwarding_tables()
-		self.configure_edge_switches_forwarding_tables()
-		
-			
+			links = get_link(self, None)
+
+			if len(switches) < expected_switches or len(links) < expected_links:
+				print(f"Waiting for topology... ({len(switches)}/{expected_switches} switches, "
+					  f"{len(links)}/{expected_links} links)")
+				hub.sleep(2)
+				continue
+
+			print(f"Topology discovery finished. Found all {expected_switches} switches and {expected_links} links.")
+
+			for sw in switches:
+				dp = sw.dp
+				self.switch_mac_to_port.setdefault(dp.id, {})
+				for port in sw.ports:
+					if port.hw_addr not in self.switch_mac_to_port[dp.id]:
+						self.switch_mac_to_port[dp.id][port.hw_addr] = port.port_no
+
+			for link in links:
+				src = link.src
+				dst = link.dst
+
+				src_ip = self.datapath_to_ip.get(src.dpid)
+				dst_ip = self.datapath_to_ip.get(dst.dpid)
+
+				if not src_ip or not dst_ip:
+					continue  # Skip if mapping is incomplete
+
+				self.datapath_port_to_connected_ip.setdefault(src_ip, {})
+				self.datapath_port_to_connected_ip.setdefault(dst_ip, {})
+
+				self.datapath_to_ports.setdefault(src_ip, [])
+				self.datapath_to_ports.setdefault(dst_ip, [])
+
+				if dst_ip not in self.datapath_port_to_connected_ip[src_ip]:
+					self.datapath_port_to_connected_ip[src_ip][dst_ip] = src.port_no
+				if src.port_no not in self.datapath_to_ports[src_ip]:
+					self.datapath_to_ports[src_ip].append(src.port_no)
+
+				if src_ip not in self.datapath_port_to_connected_ip[dst_ip]:
+					self.datapath_port_to_connected_ip[dst_ip][src_ip] = dst.port_no
+				if dst.port_no not in self.datapath_to_ports[dst_ip]:
+					self.datapath_to_ports[dst_ip].append(dst.port_no)
+
+			# Once topology is discovered, generate the routing tables
+			self.configure_core_forwarding_table()
+			self.configure_aggregate_switches_forwarding_tables()
+			self.configure_edge_switches_forwarding_tables()
+
+			self.discovery_done = True
+
 	def configure_core_forwarding_table(self):
 	
 	
@@ -223,17 +220,6 @@ class FTRouter(app_manager.RyuApp):
 			common_entries = { ip: out_port for ip, out_port in pod_switch_connections.items() if ip in pod_switch_prefix_routing_entries }
 			
 			uncommen_entries = { ip: out_port for ip, out_port in pod_switch_connections.items() if ip not in pod_switch_prefix_routing_entries }
-
-			#configuring prefix
-			"""for connected_ip in common_entries:
-			
-				switch_ip_first_three_octates = ".".join(connected_ip.split(".")[:3])
-				
-				for pod_switch_prefix_routing_entry in pod_switch_prefix_routing_entries:
-									
-					if pod_switch_prefix_routing_entry == connected_ip or pod_switch_prefix_routing_entry.startswith(switch_ip_first_three_octates):
-						
-						self.pod_switches_routing_tables["edge"][pod_switch_ip]["prefix"][pod_switch_prefix_routing_entry]=pod_switch_connections[connected_ip]"""
 			
 			
 			discovered_port_for_aggregate =list(pod_switch_connections.values())
@@ -440,7 +426,7 @@ class FTRouter(app_manager.RyuApp):
 					print(prefix_matching_entry)
 					out_port = prefix_matching_entry[1]
 				else:
-					#checking in the suffix table based on the /8 suffix match
+					#checking in the prefix table based on the /8 suffix match
 					suffix_matching_entry = next(((ip, port) for ip, port in datapath_suffix_forwarding_table.items() if ip.endswith(dst_ip_host_byte) and port is not None), None)
 					
 					if suffix_matching_entry is not None:
