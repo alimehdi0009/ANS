@@ -38,6 +38,8 @@ from ryu.app.wsgi import ControllerBase
 
 import topo
 
+from ryu.lib import hub
+
 
 class FTRouter(app_manager.RyuApp):
 	
@@ -59,7 +61,13 @@ class FTRouter(app_manager.RyuApp):
 		self.topo_net = topo.Fattree(self.k)
 		self.core_routing_table={}
 		
+		self.discovery_done = False
+		self.discovery_thread = hub.spawn(self.get_topology_data)
+		
 		self.pod_switches_routing_tables={}
+		
+		self.pod_switches_routing_tables.setdefault("aggregate",{})
+		self.pod_switches_routing_tables.setdefault("edge",{})
 		
 		self.switch_mac_to_port={}
 		
@@ -69,21 +77,33 @@ class FTRouter(app_manager.RyuApp):
 		
 		self.generate_core_switch_routing_table()
 		
-		self.generate_pod_switches_routing_tables()
+		self.generate_aggregate_switches_routing_tables()
 		
-		print(len(self.pod_switches_routing_tables["prefix"]))
+		self.generate_edge_switches_routing_tables()
+		
+		print(self.pod_switches_routing_tables)
 		
 		print(self.datapath_port_to_connected_ip)
 	
 	# Topology discovery
-	@set_ev_cls(event.EventSwitchEnter)
-	def get_topology_data(self, ev):
+	#@set_ev_cls(event.EventSwitchEnter)
+	def get_topology_data(self, ev=None):
 	
-		# Switches and links in the network
-		switches = get_switch(self, None)
-		links = get_link(self, None)
+		expected_switches = int((5 * self.k * self.k) / 4)
+		expected_links = int((3 * self.k * self.k * self.k) / 4)
 		
-
+		switches = get_switch(self, None)
+		links = get_link(self, None)	
+		
+		if len(switches) == expected_switches and len(links) == expected_links:
+			print("switches and links are discovered..!")
+			return
+		
+		while len(switches) < expected_switches or len(links) < expected_links:
+			switches = get_switch(self, None)
+			links = get_link(self, None)	
+		
+		print("switches and links are discovered..!")
 		for sw in switches:
 			
 			dp=sw.dp		
@@ -120,8 +140,14 @@ class FTRouter(app_manager.RyuApp):
 			
 			if dst.port_no not in self.datapath_to_ports[dst_dp_ip]:
 				self.datapath_to_ports[dst_dp_ip].append(dst.port_no)
-			
 		
+		self.configure_core_forwarding_table()
+		self.configure_aggregate_switches_forwarding_tables()
+		self.configure_edge_switches_forwarding_tables()
+			
+	def configure_core_forwarding_table(self):
+	
+	
 		#configuring the core switches routing table
 		for core_switch_ip in self.core_routing_table:
 			
@@ -132,13 +158,95 @@ class FTRouter(app_manager.RyuApp):
 			
 			core_connections=self.datapath_port_to_connected_ip[core_switch_ip]
 			
-			for conn in core_connections:
-				switch_first_two_octates= ".".join(conn.split(".")[:2])
+			for connected_ip in core_connections:
+				switch_first_two_octates= ".".join(connected_ip.split(".")[:2])
 				
-				for routing_entry in core_switch_routing_entries:
+				for core_routing_entry in core_switch_routing_entries:
 					
-					if routing_entry.startswith(switch_first_two_octates):
-						self.core_routing_table[core_switch_ip][routing_entry]=self.datapath_port_to_connected_ip[core_switch_ip][conn]
+					if core_routing_entry.startswith(switch_first_two_octates):
+						self.core_routing_table[core_switch_ip][core_routing_entry]=core_connections[connected_ip]
+		
+	def configure_aggregate_switches_forwarding_tables(self):
+		#configuring the core switches prefix and suffix routing table
+		for pod_switch_ip in self.pod_switches_routing_tables["aggregate"]:
+			
+			if pod_switch_ip not in self.datapath_port_to_connected_ip or pod_switch_ip not in self.pod_switches_routing_tables["aggregate"]:
+				print(f"not discovered..!{pod_switch_ip}")
+				continue
+				
+			pod_switch_prefix_routing_entries  = self.pod_switches_routing_tables["aggregate"][pod_switch_ip]["prefix"]			
+			
+			pod_switch_connections=self.datapath_port_to_connected_ip[pod_switch_ip]
+			
+			common_entries = { ip: out_port for ip, out_port in pod_switch_connections.items() if ip in pod_switch_prefix_routing_entries }
+			
+			uncommen_entries = { ip: out_port for ip, out_port in pod_switch_connections.items() if ip not in pod_switch_prefix_routing_entries }
+
+			#configuring prefix
+			for connected_ip in common_entries:
+			
+				switch_ip_first_three_octates = ".".join(connected_ip.split(".")[:3])
+				
+				for pod_switch_prefix_routing_entry in pod_switch_prefix_routing_entries:
+									
+					if pod_switch_prefix_routing_entry == connected_ip or pod_switch_prefix_routing_entry.startswith(switch_ip_first_three_octates):
+						
+						self.pod_switches_routing_tables["aggregate"][pod_switch_ip]["prefix"][pod_switch_prefix_routing_entry]=pod_switch_connections[connected_ip]
+								
+			#configuring suffix
+			
+			pod_switch_suffix_routing_entries  = self.pod_switches_routing_tables["aggregate"][pod_switch_ip]["suffix"]
+			
+			pod_switch_suffix_zipped_entries=dict(zip(pod_switch_suffix_routing_entries.keys(), uncommen_entries.values()))
+			
+			self.pod_switches_routing_tables["aggregate"][pod_switch_ip]["suffix"]=pod_switch_suffix_zipped_entries
+		
+		print(self.pod_switches_routing_tables)
+		
+		
+
+
+	def configure_edge_switches_forwarding_tables(self):
+		#configuring the core switches prefix and suffix routing table
+		for pod_switch_ip in self.pod_switches_routing_tables["edge"]:
+			
+			if pod_switch_ip not in self.datapath_port_to_connected_ip or pod_switch_ip not in self.pod_switches_routing_tables["edge"]:
+				print(f"not discovered..!{pod_switch_ip}")
+				continue
+				
+			pod_switch_prefix_routing_entries  = self.pod_switches_routing_tables["edge"][pod_switch_ip]["prefix"]			
+			
+			pod_switch_connections=self.datapath_port_to_connected_ip[pod_switch_ip]
+			
+			common_entries = { ip: out_port for ip, out_port in pod_switch_connections.items() if ip in pod_switch_prefix_routing_entries }
+			
+			uncommen_entries = { ip: out_port for ip, out_port in pod_switch_connections.items() if ip not in pod_switch_prefix_routing_entries }
+
+			#configuring prefix
+			for connected_ip in common_entries:
+			
+				switch_ip_first_three_octates = ".".join(connected_ip.split(".")[:3])
+				
+				for pod_switch_prefix_routing_entry in pod_switch_prefix_routing_entries:
+									
+					if pod_switch_prefix_routing_entry == connected_ip or pod_switch_prefix_routing_entry.startswith(switch_ip_first_three_octates):
+						
+						self.pod_switches_routing_tables["edge"][pod_switch_ip]["prefix"][pod_switch_prefix_routing_entry]=pod_switch_connections[connected_ip]
+			
+			
+			discovered_port_for_aggregate =list(pod_switch_connections.values())
+			pod_switch_suffix_routing_entries  = self.pod_switches_routing_tables["edge"][pod_switch_ip]["suffix"]
+			
+			missing_ports = list(set(self.switch_possible_ports) - set(discovered_port_for_aggregate))
+			
+			pod_switchzipped_routing_entries=dict(zip(pod_switch_suffix_routing_entries.keys(),missing_ports))
+			
+			self.pod_switches_routing_tables["edge"][pod_switch_ip]["suffix"]=pod_switchzipped_routing_entries
+		
+		print(self.pod_switches_routing_tables)
+
+			
+						 
 	
 	@set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
 	def switch_features_handler(self, ev):
@@ -209,23 +317,38 @@ class FTRouter(app_manager.RyuApp):
 	
 	
 	
-	def generate_pod_switches_routing_tables(self):
+	def generate_aggregate_switches_routing_tables(self):
 	
-		self.pod_switches_routing_tables.setdefault("prefix",{})
-		self.pod_switches_routing_tables.setdefault("suffix",{})
-		
+
 		for pod in range(0,self.k):
 			for switch in range(self.k//2, self.k):			
 				for subnet in range(0,self.k//2):
-				
-					self.pod_switches_routing_tables["prefix"].setdefault(f"10.{pod}.{switch}.1",{})
-					self.pod_switches_routing_tables["prefix"][f"10.{pod}.{switch}.1"][f"10.{pod}.{subnet}.0"]=None
+					self.pod_switches_routing_tables["aggregate"].setdefault(f"10.{pod}.{switch}.1",{})
+					self.pod_switches_routing_tables["aggregate"][f"10.{pod}.{switch}.1"].setdefault("prefix",{})
+					self.pod_switches_routing_tables["aggregate"][f"10.{pod}.{switch}.1"]["prefix"][f"10.{pod}.{subnet}.1"]=None
 										
-				self.pod_switches_routing_tables["prefix"][f"10.{pod}.{switch}.1"][f"0.0.0.0"]=None
+				self.pod_switches_routing_tables["aggregate"][f"10.{pod}.{switch}.1"]["prefix"][f"0.0.0.0"]=None
 				
 				for host in range(2, (self.k//2)+2):
-					self.pod_switches_routing_tables["suffix"].setdefault(f"10.{pod}.{switch}.1",{})
-					self.pod_switches_routing_tables["suffix"][f"10.{pod}.{switch}.1"][f"10.0.0.{host}"]=None
-        
-        
-
+					self.pod_switches_routing_tables["aggregate"].setdefault(f"10.{pod}.{switch}.1",{})
+					self.pod_switches_routing_tables["aggregate"][f"10.{pod}.{switch}.1"].setdefault("suffix",{})
+					self.pod_switches_routing_tables["aggregate"][f"10.{pod}.{switch}.1"]["suffix"][f"10.0.0.{host}"]=None
+					
+	def generate_edge_switches_routing_tables(self):
+	
+		for pod in range(0,self.k):
+			for switch in range(0,self.k//2):
+				for host in range(self.k//2, (self.k//2) +2):
+					
+					self.pod_switches_routing_tables["edge"].setdefault(f"10.{pod}.{switch}.1",{})
+					self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"].setdefault("prefix",{})
+					self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"]["prefix"][f"10.{pod}.{host}.1"]=None
+				
+				self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"]["prefix"][f"0.0.0.0"]=None
+			
+				for host in range(2, (self.k//2)+2):
+					self.pod_switches_routing_tables["edge"].setdefault(f"10.{pod}.{switch}.1",{})
+					self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"].setdefault("suffix",{})
+				
+					self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"]["suffix"][f"10.0.0.{host}"]=None
+				
