@@ -79,10 +79,6 @@ class FTRouter(app_manager.RyuApp):
 		
 		self.generate_edge_switches_routing_tables()
 		
-		print(self.pod_switches_routing_tables)
-		
-		print(self.datapath_port_to_connected_ip)
-	
 	# Topology discovery
 	#@set_ev_cls(event.EventSwitchEnter)
 	def get_topology_data(self, ev=None):
@@ -152,14 +148,11 @@ class FTRouter(app_manager.RyuApp):
 			
 			core_switch_routing_entries = self.core_routing_table[core_switch_ip]
 			
-			print(core_switch_routing_entries)
-			
 			core_connections=self.datapath_port_to_connected_ip[core_switch_ip]
 			
 			for connected_ip in core_connections:
 				switch_first_two_octates= ".".join(connected_ip.split(".")[:2])
 				
-				print(switch_first_two_octates)
 				for core_routing_entry in core_switch_routing_entries:
 					if core_routing_entry.startswith(switch_first_two_octates):
 						
@@ -200,8 +193,6 @@ class FTRouter(app_manager.RyuApp):
 			
 			self.pod_switches_routing_tables["aggregate"][pod_switch_ip]["suffix"]=pod_switch_suffix_zipped_entries
 		
-		print(self.pod_switches_routing_tables)
-		
 		
 
 
@@ -228,15 +219,8 @@ class FTRouter(app_manager.RyuApp):
 			missing_ports = list(set(self.switch_possible_ports) - set(discovered_port_for_aggregate))
 			
 			pod_switchzipped_routing_entries=dict(zip(pod_switch_suffix_routing_entries.keys(),discovered_port_for_aggregate))
-			
-			print(f"suffix for edge switch: {pod_switch_ip}")
-			print(pod_switchzipped_routing_entries)
-			print(pod_switch_connections)
-			print(discovered_port_for_aggregate)
-			
+						
 			self.pod_switches_routing_tables["edge"][pod_switch_ip]["suffix"]=pod_switchzipped_routing_entries
-		
-		print(self.pod_switches_routing_tables)
 
 			
 						 
@@ -290,13 +274,9 @@ class FTRouter(app_manager.RyuApp):
 		src_mac=eth_pkt.src
 		dst_mac=eth_pkt.dst
 		
-		
 		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP:
+		
 			arp_pkt = received_packet.get_protocol(arp.arp)
-			if arp_pkt.opcode == arp.ARP_REQUEST:
-				print("ARP Request.....!")
-			elif arp_pkt.opcode == arp.ARP_REPLY:
-				print("ARP Reply .....!")
 		
 			arp_header = received_packet.get_protocol(arp.arp)
 			src_ip=arp_header.src_ip
@@ -306,30 +286,15 @@ class FTRouter(app_manager.RyuApp):
 			dst_mac=arp_header.dst_mac
 			
 		elif eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
-			icmp_pkt = received_packet.get_protocol(icmp.icmp)
-			
-			if icmp_pkt.type == icmp.ICMP_ECHO_REQUEST:
-				print("ICMP Echo Request....!")
-			else:
-				print("ICMP Echo Response....!")
 		
 			ipv4_header = received_packet.get_protocol(ipv4.ipv4)
 			src_ip=ipv4_header.src
 			dst_ip=ipv4_header.dst
 
-		
-		
+
 		current_datapath_ip=self.datapath_to_ip[dpid]
-		
 	
 		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP or eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
-			
-			print(f"current datapath id:{dpid}")
-			print(f"Current datapath ip: {current_datapath_ip}")	
-			print(f"src: {src_ip} -- dst: {dst_ip}")
-			
-			print("current datapath connected ips:")
-			print(self.datapath_port_to_connected_ip[current_datapath_ip])
 			
 			self.switch_mac_to_port.setdefault(dpid,{})	
 				
@@ -353,6 +318,7 @@ class FTRouter(app_manager.RyuApp):
 			datapath_suffix_forwarding_table = None
 			
 			out_port=None
+			priority=1
 			
 			#if packet is at the edge switch then it check edge forwarding table
 			if current_datapath_ip in self.pod_switches_routing_tables["edge"]:
@@ -365,42 +331,28 @@ class FTRouter(app_manager.RyuApp):
 				datapath_prefix_forwarding_table = self.pod_switches_routing_tables["aggregate"][current_datapath_ip]["prefix"]
 				datapath_suffix_forwarding_table = self.pod_switches_routing_tables["aggregate"][current_datapath_ip]["suffix"]
 			
-								
-			print("prefix table:")
-			print(datapath_prefix_forwarding_table)
-			
-			print("suffix table:")
-			print(datapath_suffix_forwarding_table)
 			
 			current_datapath_network_prefix_24 = ".".join(current_datapath_ip.split(".")[:3]) # /24 of current datapath ip
 			
-			print(f"current_datapath_network_prefix_24: {current_datapath_network_prefix_24}")
-			
 			dst_ip_nextwork_prefix_24 = ".".join(dst_ip.split(".")[:3]) # get /24 of the dst ip for pod switch prefix match
 			
-			print(f"dst_ip_nextwork_prefix_24: {dst_ip_nextwork_prefix_24}")
 			dst_ip_host_byte = dst_ip.split(".")[3] # get host byte from dst ip for the suffix match
 			
-			print(f"dst_ip_host_byte: {dst_ip_host_byte}")
 			dst_ip_nextwork_prefix_16 = ".".join(dst_ip.split(".")[:2]) #get /16 from dst ip for the prefix match at core switch 
-			
-			print(f"dst_ip_nextwork_prefix_16: {dst_ip_nextwork_prefix_16}")
 			
 			#if there is a terminating entry in the prefix table on the switch then forward the packet to the port
 			
-			
 			if datapath_prefix_forwarding_table and dst_ip in datapath_prefix_forwarding_table and datapath_prefix_forwarding_table[dst_ip] is not None:
 				out_port = datapath_prefix_forwarding_table[dst_ip]
+				priority=5
 			elif dst_ip in self.datapath_port_to_connected_ip[current_datapath_ip]:
 				out_port=self.datapath_port_to_connected_ip[current_datapath_ip][dst_ip]
+				priority=5
 			elif current_datapath_network_prefix_24 == dst_ip_nextwork_prefix_24: # current datapath /24 and dst ip /24 matched means same subnet(at the desired edge switch)
 				
 				existing_datapath_ports=self.datapath_to_ports[current_datapath_ip]
 				
 				missing_ports = list(set(self.switch_possible_ports) - set(existing_datapath_ports))
-				
-				print(f"missing ports:")
-				print(missing_ports)
 				
 				for out_port in missing_ports:
 					actions = [parser.OFPActionOutput(out_port)]
@@ -411,8 +363,6 @@ class FTRouter(app_manager.RyuApp):
 									actions=actions,
 									data=msg.data)
 					datapath.send_msg(packet_out)
-						
-					print(f"forwarded packet to the end host at port: {out_port}")
 				out_port=None
 				
 					
@@ -422,40 +372,34 @@ class FTRouter(app_manager.RyuApp):
 				prefix_matching_entry = next(((ip, port) for ip, port in datapath_prefix_forwarding_table.items() if ip.startswith(dst_ip_nextwork_prefix_24) and port is not None), None)
 				
 				if prefix_matching_entry is not None:
-					print(f"prefix matched")
-					print(prefix_matching_entry)
 					out_port = prefix_matching_entry[1]
+					priority=2
 				else:
 					#checking in the prefix table based on the /8 suffix match
 					suffix_matching_entry = next(((ip, port) for ip, port in datapath_suffix_forwarding_table.items() if ip.endswith(dst_ip_host_byte) and port is not None), None)
 					
 					if suffix_matching_entry is not None:
-						print("suffix matched")
-						print(suffix_matching_entry)
 						out_port = suffix_matching_entry[1]
+						priority=2
 					
 			#at this point if outport is still None it means we are at the core switch and need /16 prefix match
-			if out_port is None:
-				print("checking at the core switch...!")
-				print(self.core_routing_table)
-				print(dst_ip_nextwork_prefix_16)
+			if out_port is None and current_datapath_ip in self.core_routing_table:
 				#performing /16 prefix match at core roting table entires
 				core_table_matching_entry = next(((ip, port) for ip, port in self.core_routing_table[current_datapath_ip].items() if ip.startswith(dst_ip_nextwork_prefix_16)), None)
 				
 				if core_table_matching_entry is not None:
 					out_port = core_table_matching_entry[1]
+					priority=2
 			
 			#at this point if port is not found it mean something is not fine
 			if out_port is None:
-				print("Ip not matched in any of the forwarding table")
 				return
 			else:
-				print(f"Got out port: {out_port}")
 				
 				actions = [parser.OFPActionOutput(out_port)]
 				
 				match = parser.OFPMatch(in_port=in_port, ipv4_src = src_ip, ipv4_dst = dst_ip, eth_type=0x0800)
-				self.add_flow(datapath, 1, match,actions)
+				self.add_flow(datapath, priority, match,actions)
 				packet_out = parser.OFPPacketOut(
 								datapath=datapath,
 								buffer_id=msg.buffer_id,
@@ -463,8 +407,6 @@ class FTRouter(app_manager.RyuApp):
 								actions=actions,
 								data=msg.data)
 				datapath.send_msg(packet_out)
-				
-				print(f"out port found ... forward the packet to the out port: {out_port})")
 				
 					
 		
