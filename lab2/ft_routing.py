@@ -142,26 +142,30 @@ class FTRouter(app_manager.RyuApp):
 		self.configure_core_forwarding_table()
 		self.configure_aggregate_switches_forwarding_tables()
 		self.configure_edge_switches_forwarding_tables()
+		
 			
 	def configure_core_forwarding_table(self):
 	
 	
 		#configuring the core switches routing table
 		for core_switch_ip in self.core_routing_table:
-			
+		
 			if core_switch_ip not in self.datapath_port_to_connected_ip:
 				continue
 			
 			core_switch_routing_entries = self.core_routing_table[core_switch_ip]
+			
+			print(core_switch_routing_entries)
 			
 			core_connections=self.datapath_port_to_connected_ip[core_switch_ip]
 			
 			for connected_ip in core_connections:
 				switch_first_two_octates= ".".join(connected_ip.split(".")[:2])
 				
+				print(switch_first_two_octates)
 				for core_routing_entry in core_switch_routing_entries:
-					
 					if core_routing_entry.startswith(switch_first_two_octates):
+						
 						self.core_routing_table[core_switch_ip][core_routing_entry]=core_connections[connected_ip]
 		
 	def configure_aggregate_switches_forwarding_tables(self):
@@ -221,7 +225,7 @@ class FTRouter(app_manager.RyuApp):
 			uncommen_entries = { ip: out_port for ip, out_port in pod_switch_connections.items() if ip not in pod_switch_prefix_routing_entries }
 
 			#configuring prefix
-			for connected_ip in common_entries:
+			"""for connected_ip in common_entries:
 			
 				switch_ip_first_three_octates = ".".join(connected_ip.split(".")[:3])
 				
@@ -229,7 +233,7 @@ class FTRouter(app_manager.RyuApp):
 									
 					if pod_switch_prefix_routing_entry == connected_ip or pod_switch_prefix_routing_entry.startswith(switch_ip_first_three_octates):
 						
-						self.pod_switches_routing_tables["edge"][pod_switch_ip]["prefix"][pod_switch_prefix_routing_entry]=pod_switch_connections[connected_ip]
+						self.pod_switches_routing_tables["edge"][pod_switch_ip]["prefix"][pod_switch_prefix_routing_entry]=pod_switch_connections[connected_ip]"""
 			
 			
 			discovered_port_for_aggregate =list(pod_switch_connections.values())
@@ -237,7 +241,12 @@ class FTRouter(app_manager.RyuApp):
 			
 			missing_ports = list(set(self.switch_possible_ports) - set(discovered_port_for_aggregate))
 			
-			pod_switchzipped_routing_entries=dict(zip(pod_switch_suffix_routing_entries.keys(),missing_ports))
+			pod_switchzipped_routing_entries=dict(zip(pod_switch_suffix_routing_entries.keys(),discovered_port_for_aggregate))
+			
+			print(f"suffix for edge switch: {pod_switch_ip}")
+			print(pod_switchzipped_routing_entries)
+			print(pod_switch_connections)
+			print(discovered_port_for_aggregate)
 			
 			self.pod_switches_routing_tables["edge"][pod_switch_ip]["suffix"]=pod_switchzipped_routing_entries
 		
@@ -297,28 +306,44 @@ class FTRouter(app_manager.RyuApp):
 		
 		
 		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP:
+			arp_pkt = received_packet.get_protocol(arp.arp)
+			if arp_pkt.opcode == arp.ARP_REQUEST:
+				print("ARP Request.....!")
+			elif arp_pkt.opcode == arp.ARP_REPLY:
+				print("ARP Reply .....!")
 		
 			arp_header = received_packet.get_protocol(arp.arp)
 			src_ip=arp_header.src_ip
 			dst_ip=arp_header.dst_ip
 			
-			dst_mac=arp_header.src_mac
+			src_mac=arp_header.src_mac
 			dst_mac=arp_header.dst_mac
 			
 		elif eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
+			icmp_pkt = received_packet.get_protocol(icmp.icmp)
+			
+			if icmp_pkt.type == icmp.ICMP_ECHO_REQUEST:
+				print("ICMP Echo Request....!")
+			else:
+				print("ICMP Echo Response....!")
 		
 			ipv4_header = received_packet.get_protocol(ipv4.ipv4)
 			src_ip=ipv4_header.src
 			dst_ip=ipv4_header.dst
-			
-		else:
-			return
+
 		
 		
 		current_datapath_ip=self.datapath_to_ip[dpid]
 		
+	
 		if eth_pkt.ethertype == ether_types.ETH_TYPE_ARP or eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
 			
+			print(f"current datapath id:{dpid}")
+			print(f"Current datapath ip: {current_datapath_ip}")	
+			print(f"src: {src_ip} -- dst: {dst_ip}")
+			
+			print("current datapath connected ips:")
+			print(self.datapath_port_to_connected_ip[current_datapath_ip])
 			
 			self.switch_mac_to_port.setdefault(dpid,{})	
 				
@@ -328,14 +353,15 @@ class FTRouter(app_manager.RyuApp):
 			if current_datapath_ip not in self.datapath_port_to_connected_ip:
 				self.datapath_port_to_connected_ip.setdefault(current_datapath_ip,{})
 				
-			if src_ip not in self.datapath_port_to_connected_ip[current_datapath_ip]:
-				self.datapath_port_to_connected_ip[current_datapath_ip][src_ip] = in_port
+			if current_datapath_ip in self.pod_switches_routing_tables["edge"] and src_ip in self.pod_switches_routing_tables["edge"][current_datapath_ip]["prefix"]:
+				self.pod_switches_routing_tables["edge"][current_datapath_ip]["prefix"][src_ip]=in_port
 			
-			if dpid not in self.datapath_to_ports:
+			if current_datapath_ip not in self.datapath_to_ports:
 				self.datapath_to_ports.setdefault(current_datapath_ip,[])
 			
 			if in_port not in self.datapath_to_ports[current_datapath_ip]:
 				self.datapath_to_ports[current_datapath_ip].append(in_port)
+			
 			
 			datapath_prefix_forwarding_table = None
 			datapath_suffix_forwarding_table = None
@@ -346,33 +372,68 @@ class FTRouter(app_manager.RyuApp):
 			if current_datapath_ip in self.pod_switches_routing_tables["edge"]:
 				datapath_prefix_forwarding_table = self.pod_switches_routing_tables["edge"][current_datapath_ip]["prefix"]
 				datapath_suffix_forwarding_table = self.pod_switches_routing_tables["edge"][current_datapath_ip]["suffix"]
+				
 			
 			#if packet is at the aggregate switch then check aggregate forwarding table
 			elif current_datapath_ip in self.pod_switches_routing_tables["aggregate"]:
 				datapath_prefix_forwarding_table = self.pod_switches_routing_tables["aggregate"][current_datapath_ip]["prefix"]
 				datapath_suffix_forwarding_table = self.pod_switches_routing_tables["aggregate"][current_datapath_ip]["suffix"]
 			
-			#if packet is neither at the edge or aggregate switch then proceed to check upper levels
-			else:
-				pass
-				
-				
+								
 			print("prefix table:")
 			print(datapath_prefix_forwarding_table)
 			
 			print("suffix table:")
 			print(datapath_suffix_forwarding_table)
 			
-			dst_ip_nextwork_prefix = ".".join(dst_ip.split(".")[:2]) # get /24 of the dst ip for pod switch prefix match
+			current_datapath_network_prefix_24 = ".".join(current_datapath_ip.split(".")[:3]) # /24 of current datapath ip
+			
+			print(f"current_datapath_network_prefix_24: {current_datapath_network_prefix_24}")
+			
+			dst_ip_nextwork_prefix_24 = ".".join(dst_ip.split(".")[:3]) # get /24 of the dst ip for pod switch prefix match
+			
+			print(f"dst_ip_nextwork_prefix_24: {dst_ip_nextwork_prefix_24}")
 			dst_ip_host_byte = dst_ip.split(".")[3] # get host byte from dst ip for the suffix match
-			dst_ip_nextwork_prefix = ".".join(dst_ip.split(".")[:1]) #get /16 from dst ip for the prefix match at core switch 
+			
+			print(f"dst_ip_host_byte: {dst_ip_host_byte}")
+			dst_ip_nextwork_prefix_16 = ".".join(dst_ip.split(".")[:2]) #get /16 from dst ip for the prefix match at core switch 
+			
+			print(f"dst_ip_nextwork_prefix_16: {dst_ip_nextwork_prefix_16}")
 			
 			#if there is a terminating entry in the prefix table on the switch then forward the packet to the port
-			if dst_ip in datapath_prefix_forwarding_table:
+			
+			
+			if datapath_prefix_forwarding_table and dst_ip in datapath_prefix_forwarding_table and datapath_prefix_forwarding_table[dst_ip] is not None:
 				out_port = datapath_prefix_forwarding_table[dst_ip]
-			else:	
+			elif dst_ip in self.datapath_port_to_connected_ip[current_datapath_ip]:
+				out_port=self.datapath_port_to_connected_ip[current_datapath_ip][dst_ip]
+			elif current_datapath_network_prefix_24 == dst_ip_nextwork_prefix_24: # current datapath /24 and dst ip /24 matched means same subnet(at the desired edge switch)
+				
+				existing_datapath_ports=self.datapath_to_ports[current_datapath_ip]
+				
+				missing_ports = list(set(self.switch_possible_ports) - set(existing_datapath_ports))
+				
+				print(f"missing ports:")
+				print(missing_ports)
+				
+				for out_port in missing_ports:
+					actions = [parser.OFPActionOutput(out_port)]
+					packet_out = parser.OFPPacketOut(
+									datapath=datapath,
+									buffer_id=msg.buffer_id,
+									in_port=in_port,
+									actions=actions,
+									data=msg.data)
+					datapath.send_msg(packet_out)
+						
+					print(f"forwarded packet to the end host at port: {out_port}")
+				out_port=None
+				
+					
+				
+			elif datapath_prefix_forwarding_table:	
 				#checking in the prefix table based on the /24 prefix match. following line return a matching values tuple (ip,port) if exists else None
-				prefix_matching_entry = next(((ip, port) for ip, port in datapath_prefix_forwarding_table.items() if ip.startswith(dst_ip_nextwork_prefix)), None)
+				prefix_matching_entry = next(((ip, port) for ip, port in datapath_prefix_forwarding_table.items() if ip.startswith(dst_ip_nextwork_prefix_24) and port is not None), None)
 				
 				if prefix_matching_entry is not None:
 					print(f"prefix matched")
@@ -380,17 +441,20 @@ class FTRouter(app_manager.RyuApp):
 					out_port = prefix_matching_entry[1]
 				else:
 					#checking in the prefix table based on the /8 suffix match
-					suffix_matching_entry = next(((ip, port) for ip, port in datapath_suffix_forwarding_table.items() if ip.endswith(dst_ip_host_byte)), None)
+					suffix_matching_entry = next(((ip, port) for ip, port in datapath_suffix_forwarding_table.items() if ip.endswith(dst_ip_host_byte) and port is not None), None)
 					
-					print("suffix matched")
-					print(suffix_matching_entry)
-					out_port = suffix_matching_entry[1]
+					if suffix_matching_entry is not None:
+						print("suffix matched")
+						print(suffix_matching_entry)
+						out_port = suffix_matching_entry[1]
 					
 			#at this point if outport is still None it means we are at the core switch and need /16 prefix match
 			if out_port is None:
-				
+				print("checking at the core switch...!")
+				print(self.core_routing_table)
+				print(dst_ip_nextwork_prefix_16)
 				#performing /16 prefix match at core roting table entires
-				core_table_matching_entry = next(((ip, port) for ip, port in core_routing_table.items() if ip.startswith(dst_ip_nextwork_prefix)), None)
+				core_table_matching_entry = next(((ip, port) for ip, port in self.core_routing_table[current_datapath_ip].items() if ip.startswith(dst_ip_nextwork_prefix_16)), None)
 				
 				if core_table_matching_entry is not None:
 					out_port = core_table_matching_entry[1]
@@ -400,12 +464,23 @@ class FTRouter(app_manager.RyuApp):
 				print("Ip not matched in any of the forwarding table")
 				return
 			else:
+				print(f"Got out port: {out_port}")
+				
+				actions = [parser.OFPActionOutput(out_port)]
+				
+				match = parser.OFPMatch(in_port=in_port, ipv4_src = src_ip, ipv4_dst = dst_ip, eth_type=0x0800)
+				self.add_flow(datapath, 1, match,actions)
+				packet_out = parser.OFPPacketOut(
+								datapath=datapath,
+								buffer_id=msg.buffer_id,
+								in_port=in_port,
+								actions=actions,
+								data=msg.data)
+				datapath.send_msg(packet_out)
+				
 				print(f"out port found ... forward the packet to the out port: {out_port})")
 				
 					
-			
-		
-		
 		
 	def generate_datapath_to_ip(self,ft_topo):
 	
@@ -457,11 +532,11 @@ class FTRouter(app_manager.RyuApp):
 	
 		for pod in range(0,self.k):
 			for switch in range(0,self.k//2):
-				for host in range(self.k//2, (self.k//2) +2):
+				for host in range(2, (self.k//2) +2):
 					
 					self.pod_switches_routing_tables["edge"].setdefault(f"10.{pod}.{switch}.1",{})
 					self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"].setdefault("prefix",{})
-					self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"]["prefix"][f"10.{pod}.{host}.1"]=None
+					self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"]["prefix"][f"10.{pod}.{switch}.{host}"]=None
 				
 				self.pod_switches_routing_tables["edge"][f"10.{pod}.{switch}.1"]["prefix"][f"0.0.0.0"]=None
 			
