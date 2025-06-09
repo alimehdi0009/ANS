@@ -49,7 +49,7 @@ class SPRouter(app_manager.RyuApp):
 		
 		# Initialize the topology with #ports=4
 		
-		self.k=4
+		self.k=6
 		
 		self.topo_net = topo.Fattree(self.k)
 		self.datapath_to_ip={}
