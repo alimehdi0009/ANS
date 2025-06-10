@@ -19,8 +19,6 @@
  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  """
 
-from enum import Enum
- 
 
 # Class for an edge in the graph
 class Edge:

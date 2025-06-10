@@ -89,6 +89,22 @@ class FattreeNet(Topo):
 	def get_dpid(self,unique_id):
 		dpid = unique_id.split("-")[1]
 		return format(int(dpid),'016x')
+			
+	
+	"""def genrate_core_switch_forwarding_table(self):
+		
+		for j in range(1, (self.ft_topo.number_of_ports // 2) + 1):
+			for i in range(1, (self.ft_topo.number_of_ports // 2) + 1):
+				for pod_id in range(0,self.ft_topo.number_of_ports):
+					core_switch=self.ft_topo.switches[0][pod_id]
+					self.add_prefix(core_switch.unique_id, f"10.{pod_id}.0.0",pod_id)
+		
+		
+	
+	def add_prefix(self,switch_id,destination_ip,out_port):
+		self.switches_routing_tables.setdefault(switch_id,{})
+		self.switches_routing_tables[switch_id][destination_ip]=out_port"""
+		
 		
 
 def make_mininet_instance(graph_topo):
