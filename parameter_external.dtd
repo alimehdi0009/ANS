@@ -1,1 +1,1 @@
-<!ELEMENT greeting (#PCDATA)>
+<!ELEMENT test (#PCDATA)>
