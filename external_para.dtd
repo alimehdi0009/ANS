@@ -1,4 +1,7 @@
+
+
 <!ENTITY % start "<![CDATA[">
-<!ENTITY % file SYSTEM "https://internal.websec.cs.uni-paderborn.de/second">
+<!ENTITY % file SYSTEM "https://internal.websec.cs.uni-paderborn.de/first">
 <!ENTITY % end "]]>">
-<!ENTITY all "%start;%file;%end;">
+<!ENTITY % all "<!ENTITY fileContent '%start;%file;%end;'>">
+%all;
