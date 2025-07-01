@@ -23,9 +23,10 @@ from lib.gen import GenInts, GenMultipleOfInRange
 from lib.test import CreateTestData, RunIntTest
 from lib.worker import *
 from scapy.all import Packet
+import sys
 
-NUM_ITER   = 1     # TODO: Make sure your program can handle larger values
-CHUNK_SIZE = None  # TODO: Define me
+NUM_ITER   = 5     # TODO: Make sure your program can handle larger values
+CHUNK_SIZE = 256  # TODO: Define me
 
 class SwitchML(Packet):
     name = "SwitchMLPacket"

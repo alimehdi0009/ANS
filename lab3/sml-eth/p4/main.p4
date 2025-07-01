@@ -27,14 +27,19 @@
 typedef bit<9>  sw_port_t;   /*< Switch port */
 typedef bit<48> mac_addr_t;  /*< MAC address */
 
+const bit<16> ETH_TYPE_SWITCHML = 0x1234;
+
 header ethernet_t {
-  /* TODO: Define me */
+    mac_addr_t dstAddr;
+    mac_addr_t srcAddr;
+    bit<16>   etherType;
 }
 
 header sml_t {
-  /* TODO: Define me */
+    bit<32> chunk_count; 
+    bit<32> chunk_size; 
+    bit<32> data_chunk[]; 
 }
-
 struct headers {
   ethernet_t eth;
   sml_t sml;
@@ -46,15 +51,75 @@ parser TheParser(packet_in packet,
                  out headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
-  /* TODO: Implement me */
-  state start {}
+   // Start state
+  state start {
+    transition parse_ethernet;
+  }
+  
+  // State for parsing Ethernet header 
+  state parse_ethernet {
+  
+    packet.extract(hdr.eth);    
+    transition select(hdr.eth.ether_type) {
+            ETH_TYPE_SWITCHML : parse_switchml;
+            default : reject;  
+        }
+  }
+  
+  state parse_switchml {
+  	packet.extract(hdr.sml);
+  	transition accept;
+  }
 }
 
 control TheIngress(inout headers hdr,
                    inout metadata meta,
                    inout standard_metadata_t standard_metadata) {
+  
+  action drop() {
+    mark_to_drop(standard_metadata);
+  }
+
+  // Simple L2 forwarding action
+  action l2_forward(sw_port_t port) {
+    standard_metadata.egress_spec = port;
+  }
+
+  // Multicast action; for ARP requests
+  action multicast(bit<16> mgid) {
+    standard_metadata.mcast_grp = mgid;
+  }
+
+  // Ethernet forwarding table
+  table ethernet_table {
+
+    // Fields to match on and how to match
+    key = {
+      hdr.eth.dstAddr: exact;
+    }
+
+    // Possible actions
+    actions = {
+      l2_forward;
+      multicast;
+      drop;
+      NoAction;
+    }
+
+    // Table size and default action
+    size = 1024;
+    default_action = NoAction();
+  }
+
+
   apply {
-    /* TODO: Implement me */
+
+
+    if (hdr.eth.isValid() && hdr.sml.isValid()) {
+      ethernet_table.apply();
+    } else {
+      drop();
+    }
   }
 }
 
