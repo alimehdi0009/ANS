@@ -28,6 +28,8 @@ typedef bit<9>  sw_port_t;   /*< Switch port */
 typedef bit<48> mac_addr_t;  /*< MAC address */
 
 const bit<16> ETH_TYPE_SWITCHML = 0x1234;
+const bit<16> CHUNK_SIZE = 512;
+
 
 header ethernet_t {
     mac_addr_t dstAddr;
@@ -35,14 +37,20 @@ header ethernet_t {
     bit<16>   etherType;
 }
 
+header data {
+    bit<32> value;
+}
+
+
+
 header sml_t {
     bit<32> chunk_count; 
-    bit<32> chunk_size; 
-    bit<32> data_chunk[]; 
+    bit<32> chunk_size;
 }
 struct headers {
   ethernet_t eth;
   sml_t sml;
+  data[512] data_chunk;
 }
 
 struct metadata { /* empty */ }
@@ -59,11 +67,8 @@ parser TheParser(packet_in packet,
   // State for parsing Ethernet header 
   state parse_ethernet {
   
-    packet.extract(hdr.eth);    
-    transition select(hdr.eth.ether_type) {
-            ETH_TYPE_SWITCHML : parse_switchml;
-            default : reject;  
-        }
+    packet.extract(hdr.eth);
+    transition parse_switchml;
   }
   
   state parse_switchml {
@@ -72,12 +77,27 @@ parser TheParser(packet_in packet,
   }
 }
 
+
 control TheIngress(inout headers hdr,
                    inout metadata meta,
                    inout standard_metadata_t standard_metadata) {
-  
+ 	
+ 	
+ 	
+    register<bit<32>>(1024) aggregate;
+   
+   
   action drop() {
     mark_to_drop(standard_metadata);
+  }
+
+  
+  @atomic
+  action aggregate_chunks(){
+ 	
+ 	inout bit<32> sum;
+        aggregate.read(0, sum);
+        aggregate.write(0, sum + 5);
   }
 
   // Simple L2 forwarding action
@@ -100,6 +120,7 @@ control TheIngress(inout headers hdr,
 
     // Possible actions
     actions = {
+    	aggregate_chunks;
       l2_forward;
       multicast;
       drop;
@@ -116,6 +137,7 @@ control TheIngress(inout headers hdr,
 
 
     if (hdr.eth.isValid() && hdr.sml.isValid()) {
+    
       ethernet_table.apply();
     } else {
       drop();

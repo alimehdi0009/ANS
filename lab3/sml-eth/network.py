@@ -47,8 +47,9 @@ class SMLTopo(Topo):
         # Create the workers
         for i in range(NUM_WORKERS):
             worker = self.addHost(
-                'w%d' % i, ip=getWorkerIP(i), mac=getWorkerMAC(i))
-            self.addLink(worker, sw, port2=i)
+                'w%d' % int(i+1), ip=getWorkerIP(i), mac=getWorkerMAC(i))
+            print(f",linkig at port: {i}")
+            self.addLink(worker, sw, port2=i+1)
 
 def RunWorkers(net):
     """
@@ -74,14 +75,17 @@ def RunControlPlane(net):
     # Use function insertTableEntry from p4app/src/p4_mininet.py to insert table entries
     
     # Bidirectional forwarding rules
+    
+    
     sw.insertTableEntry(table_name='TheIngress.ethernet_table',
                         match_fields={'hdr.eth.dstAddr': '00:00:00:00:01:01'},
                         action_name='TheIngress.l2_forward',
-                        action_params={'port': 0})
+                        action_params={'port': 1})
+
     sw.insertTableEntry(table_name='TheIngress.ethernet_table',
                         match_fields={'hdr.eth.dstAddr': '00:00:00:00:01:02'},
                         action_name='TheIngress.l2_forward',
-                        action_params={'port': 1})
+                        action_params={'port': 2})
     
     # Multicast ARP requests
     sw.insertTableEntry(table_name='TheIngress.ethernet_table',

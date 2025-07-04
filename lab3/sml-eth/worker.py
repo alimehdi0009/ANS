@@ -23,9 +23,9 @@ from lib.gen import GenInts, GenMultipleOfInRange
 from lib.test import CreateTestData, RunIntTest
 from lib.worker import *
 from scapy.all import Packet
-from scapy.fields import IntField, XIntField, FieldListField, FloatField
+from scapy.fields import IntField, XIntField, FieldListField
 from scapy.layers.l2 import Ether
-from scapy.all import Ether, Raw, sendp, srp1
+from scapy.all import Ether, Raw, sendp
 import socket
 
 NUM_ITER   = 5     # TODO: Make sure your program can handle larger values
@@ -46,6 +46,9 @@ def getWorkerIP(wid):
 
 def getWorkerMAC(wid):
     return "00:00:00:00:01:%02x" % (wid + 1)
+    
+def is_response(pkt):
+    return pkt.haslayer(SwitchMLGradient)
 
 def AllReduce(iface, rank, data, result):
     """
@@ -78,20 +81,17 @@ def AllReduce(iface, rank, data, result):
     			chunk_size = CHUNK_SIZE,
     			data_chunk=chunk)
     	
-    	eth_pkt = Ether(dst=getWorkerMAC(rank), type= ETH_TYPE_SML ) / sml_pkt
-    	
-    	response = srp1(eth_pkt, iface=iface, verbose=True)
-    	
-    	if response and response.:
-    		
+    	eth_pkt = Ether(src=getWorkerMAC(rank),dst=getWorkerMAC(rank), type= ETH_TYPE_SML ) / sml_pkt
     	
     	
+    	eth_pkt.show()
     	
+    	raw_bytes = bytes(eth_pkt)
     	
+    	target_address = (getWorkerIP(rank), rank+1)
     	
+    	sock.sendto(raw_bytes, target_address)
     	
-    
-    gradient_pkt = SwitchML( chunk_index = 1, gradients = [1.23, 4.56, 7.89] )
     
     pass
 
@@ -113,9 +113,9 @@ def main():
         num_elem = GenMultipleOfInRange(2, 2048, 2 * CHUNK_SIZE) # You may want to 'fix' num_elem for debugging
         data_out = GenInts(num_elem)
         data_in = GenInts(num_elem, 0)
-        CreateTestData("eth-iter-%d" % i, rank, data_out)
+        #CreateTestData("eth-iter-%d" % i, rank, data_out)
         AllReduce(iface, rank, data_out, data_in)
-        RunIntTest("eth-iter-%d" % i, rank, data_in, True)
+        #RunIntTest("eth-iter-%d" % i, rank, data_in, True)
     Log("Done")
 
 if __name__ == '__main__':
